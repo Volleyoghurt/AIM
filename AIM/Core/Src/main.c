@@ -85,16 +85,12 @@ uint32_t TxDataCan[8];
 uint8_t RxDataCan[8];
 uint8_t RX_Buffer_I2C[1]; //I2C RX variable
 char buf[64];
-int TempReady 					= 0;
-int tmpAlertFlag 				= 0;
+uint8_t TempReady 		= 0;
+uint8_t TmpAlertFlag 	= 0;
+uint8_t InaAlertFlag 	= 0;
 char TempBuf[64];
 
-/*Debug settings */
-uint8_t Debug_tempRead 			= 0;
-uint8_t Debug_tempReadReg 		= 0;
-uint8_t Debug_DS1682TimeRead 	= 0;
-uint8_t Debug_INA238_ReadVbus 	= 1;
-uint8_t Debug_CanSend 			= 0;
+
 
 
 uint32_t pulseStart = 0;
@@ -132,39 +128,19 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
     }
 
-/*
-     if (GPIO_Pin == LinkStatus1_Pin) {
-           if (HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin) == GPIO_PIN_SET) {
-                // Rising edge → start van puls
-                pulseStart = HAL_GetTick();  // in ms
-            } else {
-                // Falling edge → einde van puls
-                uint32_t now = HAL_GetTick();
-                pulseWidth = now - pulseStart;
-
-                if (pulseWidth >= 10) {
-                    // Geldige puls van ~10 ms gedetecteerd
-                }
-            }
-        }
-*/
-}
-
-
-/*
     if (GPIO_Pin == TMPALERT_Pin)
       {
-    	  tmpAlertFlag = 1;
-    	  GPIO_PinState state = HAL_GPIO_ReadPin(LD3_GPIO_Port, LD3_Pin);
+    	  TmpAlertFlag = 1;
 
-
-        // Zet de LED gelijk aan de pulsstatus
-    	  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, state);
-      } else {
+     } else {
           __NOP();
-    	}
-*/
+    }
 
+    if(GPIO_Pin == InaAlertFlag)
+    {
+    	InaAlertFlag = 1;
+    }
+}
 
 
 // init van de AIM bij eerste opstart MCU
@@ -179,22 +155,22 @@ void   AIM_INIT(void)
 	//{
 		TMP_SetAlarmTemp(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT,AlarmLimitLowSetPoint);
 		TMP_SetAlarmTemp(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT,AlarmLimitHighSetPoint);
-		uint16_t AlarmLimitLow = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT);
-		uint16_t AlarmLimitHigh = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT);
+		uint16_t AlarmLimitLow = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT,0);
+		uint16_t AlarmLimitHigh = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT,0);
 
 
 		// TnA config instellen Temp Mode = 1, Alert mode = 0
-		if (TMP117_Set_TnA(TMP117_I2C_ADDR,1) != HAL_OK) {
-	     // Error_Handler();  // bit 4 nu = 1
-	 	}
+		TMP117_WriteMaskedRegister(TMP117_I2C_ADDR, TMP117_REG_CONFIG, (1 << 4), (1 << 4));
+
 
 		TMP117_Display_Register (TMP117_I2C_ADDR, TMP117_REG_CONFIG);
 		//}
 
+		INA238_SetAlarmBOVL(INA238_I2C_ADDR,3);
 
 
 	 	 // Send identificatie van het board
-	 	 SendIdent(BOARD, 1, VERSION, SERIAL, BUILDDATE);
+	 	 CanSendIdent(BOARD, 1, VERSION, SERIAL, BUILDDATE);
 
 }
 
@@ -216,7 +192,7 @@ void UART_MSG(void)
  * @param index       Vrij te gebruiken index, bijvoorbeeld sensornummer op het board
  * @param temperature Raw temperatuurwaarde (16-bit, LSB = 7.8125 m°C)
  */
-void SendTemperature(uint8_t board, uint8_t index, uint16_t temperature) {
+void CanSendTemperature(uint8_t board, uint8_t index, uint16_t temperature) {
     // Vul de payloadstructuur met de rauwe temperatuurdata
     TempMsg_t msgtmp;
     msgtmp.value     = temperature;  // byte 0–1: temperatuur in stappen van 7.8125 m°C
@@ -235,11 +211,11 @@ void SendTemperature(uint8_t board, uint8_t index, uint16_t temperature) {
         index
     );
 
-    // Verstuur het bericht via CAN_SendMessage:
+    // Verstuur het bericht via CanSendMessage:
     // - idTmp:   de samengestelde Extended CAN-ID
     // - payload: pointer naar onze TempMsg_t struct
     // - sizeof:  payloadgrootte (hier 5 bytes, rest wordt automatisch opgevuld met 0)
-    CAN_SendMessage(idTmp, (uint8_t*)&msgtmp, sizeof(msgtmp));
+    CanSendMessage(idTmp, (uint8_t*)&msgtmp, sizeof(msgtmp),0);
 }
 
 /**
@@ -251,7 +227,7 @@ void SendTemperature(uint8_t board, uint8_t index, uint16_t temperature) {
  * @param bdate   Bouwdatum van de firmware (bijv. YYMMDD of index)
  */
 
-void SendIdent(uint8_t board, uint8_t index, uint8_t id, uint8_t serid, uint8_t bdate){
+void CanSendIdent(uint8_t board, uint8_t index, uint8_t id, uint8_t serid, uint8_t bdate){
 	 // Maak een IdentMsg_t-struct en vul de velden
 		IdentMsg_t msgversion;
 		msgversion.version_id = id;
@@ -269,11 +245,11 @@ void SendIdent(uint8_t board, uint8_t index, uint8_t id, uint8_t serid, uint8_t 
 			TYPE_IDENT,                // type ID temperatuur
 	        index
 		    );
-		// Verstuur het bericht via CAN_SendMessage:
+		// Verstuur het bericht via CanSendMessage:
 		// - idId:     uitgebreide CAN-ID
 	    // - payload:  pointer naar onze IdentMsg_t
 	    // - length:   grootte van de payload (hier 3 bytes)
-	CAN_SendMessage(idId, (uint8_t*)&msgversion,sizeof(msgversion));
+	CanSendMessage(idId, (uint8_t*)&msgversion,sizeof(msgversion),0);
 }
 
 
@@ -284,7 +260,7 @@ void SendIdent(uint8_t board, uint8_t index, uint8_t id, uint8_t serid, uint8_t 
  * @param uptime_seconds  Totale uptime in seconden
  * @param reset           Aantal keren dat de MCU is gereset
  */
-void SendUptime(uint8_t board, uint8_t index, uint32_t uptime_seconds, uint32_t reset) {
+void CanSendUptime(uint8_t board, uint8_t index, uint32_t uptime_seconds, uint32_t reset) {
     // Vul een RuntimeMsg_t struct met de meegegeven waarden
     RuntimeMsg_t msg;
     msg.runtime     = uptime_seconds;  // byte 0–3: uptime in seconden
@@ -306,10 +282,10 @@ void SendUptime(uint8_t board, uint8_t index, uint32_t uptime_seconds, uint32_t 
     //  - id:      de samengestelde Extended CAN-ID
     //  - payload: pointer naar de RuntimeMsg_t struct
     //  - sizeof:  aantal bytes in de struct (hier 5 bytes)
-    CAN_SendMessage(id, (uint8_t*)&msg, sizeof(msg));
+    CanSendMessage(id, (uint8_t*)&msg, sizeof(msg),0);
 }
 
-void SendVoltage(uint8_t board, uint8_t index, uint32_t voltage, uint32_t time) {
+void CanSendVoltage(uint8_t board, uint8_t index, uint32_t voltage, uint32_t time) {
 	VoltageMsg_t msg;
 	msg.value = voltage;
 	msg.status = 0x00;
@@ -321,7 +297,7 @@ void SendVoltage(uint8_t board, uint8_t index, uint32_t voltage, uint32_t time) 
 		TYPE_SPANNING,
 		index
 	);
-	CAN_SendMessage(id, (uint8_t*)&msg, sizeof(msg));
+	CanSendMessage(id, (uint8_t*)&msg, sizeof(msg),0);
 }
 
 // Can-bus zend bericht.
@@ -331,7 +307,7 @@ void SendVoltage(uint8_t board, uint8_t index, uint32_t voltage, uint32_t time) 
  * @param payload Pointer naar maximaal 8 bytes data
  * @param length  Aantal bytes in payload (0–8)
  */
-void CAN_SendMessage(uint32_t extId, const uint8_t payload[8], uint8_t length)
+void CanSendMessage(uint32_t extId, const uint8_t payload[8], uint8_t length,uint8_t debug)
 {
     uint32_t TxMailbox;
 
@@ -347,7 +323,7 @@ void CAN_SendMessage(uint32_t extId, const uint8_t payload[8], uint8_t length)
         HAL_CAN_AddTxMessage(&hcan1, &TxHeaderCan, payload, &TxMailbox);
 
         // Optioneel: log de verzonden data via UART voor debug
-        if(Debug_CanSend == 1)
+        if(debug == 1)
         {
         char buf[64];
         int len = snprintf(buf, sizeof(buf),
@@ -454,19 +430,22 @@ HAL_StatusTypeDef TMP117_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value
 }
 
 /**
- * Lees en converteer de temperatuur van de TMP117
- * @param addr  7-bit I²C-adres van de TMP117 (linksshifted <<1 voor HAL)
- * @param reg   Registerpointer voor temperatuurresultaat (bijv. TMP117_REG_TEMP_RESULT)
- * @return      Ruwe 16-bit registerwaarde (signed, LSB = 7.8125 m°C)
+ * Lees en converteer de temperatuur van de TMP117.
+ *
+ * @param addr   7-bit I²C-adres van de TMP117 (wordt linksshifted <<1 voor HAL-functies).
+ * @param reg    Registeradres voor het temperatuurresultaat (bijv. TMP117_REG_TEMP_RESULT).
+ * @param debug  Zet op 1 om de temperatuurwaarde via UART te versturen; 0 om dit uit te schakelen.
+ * @return       Ruwe 16-bit registerwaarde (signed, LSB = 7.8125 m°C).
  *
  * Deze functie:
  * 1. Leest het 16-bit temperatuurregister via TMP117_ReadRegister().
- * 2. Zet de ruwe waarde om naar een signed int16.
- * 3. Converteert naar graden Celsius (°C = raw * 0.0078125).
- * 4. Stuurt een debugbericht via UART met het resultaat.
- * 5. Geeft de originele raw-waarde terug voor verder gebruik.
+ * 2. Zet de ruwe waarde om naar een signed int16_t.
+ * 3. Converteert deze naar graden Celsius (°C = raw * 0.0078125).
+ * 4. Stuurt optioneel een debugbericht via UART als 'debug' actief is.
+ * 5. Geeft de originele raw-waarde terug voor verder gebruik of logging.
  */
-uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg) {
+
+uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg,uint8_t debug) {
 	// Lees ruwe 16-bit temperatuur
 	uint16_t raw = TMP117_ReadRegister(addr, reg);
 
@@ -477,7 +456,7 @@ uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg) {
 	float temp = signed_val * 0.0078125f;  // 7.8125 m°C per bit
 
 	// Debug-output via UART
-	if(Debug_tempRead == 1){
+	if(debug == 1){
 		char buf[64];
 		int len = snprintf(buf, sizeof(buf),
 					   "TMP117: Adres 0x%02X, temperatuur = %.2f °C\r\n",
@@ -492,7 +471,7 @@ uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg) {
 
 
 /**
- * Schrijf een temperatuur­waarde naar de TMP117 (T<sub>nA</sub>-format)
+ * Schrijf een temperatuur­waarde naar de TMP117
  * @param addr  7-bit I²C-adres van de TMP117 (linksshifted <<1 voor HAL)
  * @param reg   Registerpointer voor het alarm- of T<sub>nA</sub>-register
  * @param temp  Gewenste temperatuur in °C (float)
@@ -542,7 +521,7 @@ HAL_StatusTypeDef TMP117_WriteTemperatureC(uint8_t addr, uint8_t reg, float temp
 }
 
 
-/**
+/*
  * Stel het temperatuur-alarm (T<sub>nA</sub>-point) in op de TMP117
  * @param addr  7-bit I²C-adres van de TMP117 (linksshifted <<1 voor HAL)
  * @param reg   Registerpointer voor het hoge of lage alarm­punt (TMP117_REG_T_HIGH_LIMIT of TMP117_REG_T_LOW_LIMIT)
@@ -551,7 +530,7 @@ HAL_StatusTypeDef TMP117_WriteTemperatureC(uint8_t addr, uint8_t reg, float temp
  * Deze functie schrijft de temperatuur in °C om naar de ruwe 16-bit waarde
  * en gebruikt TMP117_WriteTemperatureC om het register te vullen. Er wordt
  * een debugbericht via UART verzonden om succes of falen te melden.
- */
+*/
 void TMP_SetAlarmTemp(uint8_t addr, uint8_t reg, float temp)
 {
     // Probeer het alarmregister te schrijven met de opgegeven temperatuur
@@ -572,36 +551,46 @@ void TMP_SetAlarmTemp(uint8_t addr, uint8_t reg, float temp)
     }
 }
 
+
+
 /**
- * Zet of wis de T/nA-bit (bit 4) in het CONFIG-register.
- * @param enable  ‘true’ om bit 4 = 1 te maken, ‘false’ om te clearen.
- * @return HAL-status
+ * Past een of meerdere bits aan in een 16-bits register van de TMP117.
+ *
+ * Deze functie voert een read-modify-write uit:
+ * 1. Leest het opgegeven 16-bits register.
+ * 2. Wijzigt alleen de bits die overeenkomen met het meegegeven mask.
+ * 3. Schrijft het gewijzigde register terug naar de TMP117.
+ *
+ * @param addr     7-bits I²C-adres van de TMP117 (left-shifted <<1 voor HAL-functies).
+ * @param reg      Registeradres dat aangepast moet worden (bijv. TMP117_REG_CONFIG).
+ * @param mask     Bitmasker van de bits die gewijzigd mogen worden (bijv. 0x00F0).
+ * @param value    Gewenste waarde voor die bits (bijv. 0x0010 zet bit 4 aan).
+ * @return         HAL-status (HAL_OK bij succes, anders een foutcode).
  */
-HAL_StatusTypeDef TMP117_Set_TnA(uint8_t addr, uint8_t enable)
+HAL_StatusTypeDef TMP117_WriteMaskedRegister(uint8_t addr, uint8_t reg, uint16_t mask, uint16_t value)
 {
     HAL_StatusTypeDef ret;
-    uint16_t cfg;
+    uint16_t reg_val;
     uint8_t buf[2];
 
-    // 1) Lees huidig CONFIG
-    ret = HAL_I2C_Mem_Read(&hi2c1,addr,TMP117_REG_CONFIG,I2C_MEMADD_SIZE_8BIT,(uint8_t*)&cfg,sizeof(cfg),HAL_MAX_DELAY);
+    // 1) Lees huidige registerwaarde
+    ret = HAL_I2C_Mem_Read(&hi2c1, addr, reg, I2C_MEMADD_SIZE_8BIT,
+                           (uint8_t*)&reg_val, sizeof(reg_val), HAL_MAX_DELAY);
     if (ret != HAL_OK) return ret;
 
-    // 2) Pas bit 4 aan
-    if (enable = 1) {
-        cfg |=  (1 << 4);
-    } else {
-        cfg &= ~(1 << 4);
-    }
+    // 2) Mask bits en zet nieuwe waarde
+    reg_val = (reg_val & ~mask) | (value & mask);
 
-    // 3) Bouw MSB/LSB buffer
-    buf[0] = (uint8_t)(cfg >> 8);
-    buf[1] = (uint8_t)(cfg & 0xFF);
+    // 3) Zet MSB/LSB in buffer
+    buf[0] = (uint8_t)(reg_val >> 8);
+    buf[1] = (uint8_t)(reg_val & 0xFF);
 
-    // 4) Schrijf terug
-    ret = HAL_I2C_Mem_Write(&hi2c1,addr,TMP117_REG_CONFIG,I2C_MEMADD_SIZE_8BIT,buf,sizeof(buf),HAL_MAX_DELAY);
+    // 4) Schrijf terug naar het register
+    ret = HAL_I2C_Mem_Write(&hi2c1, addr, reg, I2C_MEMADD_SIZE_8BIT,
+                            buf, sizeof(buf), HAL_MAX_DELAY);
     return ret;
 }
+
 
 /**
  * Toon de inhoud van een 16-bit register van de TMP117 via UART
@@ -628,8 +617,7 @@ void TMP117_Display_Register(uint8_t addr, uint16_t Register)
 
     // Maak een UART-outputstring met binaire en hex weergave
     char buf[64];
-    if(Debug_tempReadReg == 1){
-    	int len = snprintf(buf, sizeof(buf),
+   	int len = snprintf(buf, sizeof(buf),
                        "TMP117: Adres 0x%02X, Read Reg 0b%s (0x%04X)\r\n",
                        (addr >> 1),       // shift terug naar 7-bit adres
                        bufbin,            // binaire weergave
@@ -638,7 +626,6 @@ void TMP117_Display_Register(uint8_t addr, uint16_t Register)
                       (uint8_t*)buf,
                       len,
                       HAL_MAX_DELAY);
-    	}
     }
 }
 
@@ -743,7 +730,7 @@ uint16_t DS1682_ReadEventCounter(uint8_t addr) {
  */
 
 
-static void DS1682_SecondsToHMS_Display(uint8_t addr) {
+void DS1682_SecondsToHM_Display(uint8_t addr,uint8_t debug) {
     // Lees totaal aantal seconden
     uint32_t total_seconds = DS1682_ReadElapsedTime(addr);
     uint32_t hours   = total_seconds / 3600;        // volle uren
@@ -751,7 +738,7 @@ static void DS1682_SecondsToHMS_Display(uint8_t addr) {
     uint32_t minutes = rem / 60;                    // resterende minuten
 
     // Formatteer en verstuur bericht via UART
-    if(Debug_DS1682TimeRead == 1){
+    if(debug == 1){
     	char buf[64];
     	int len = snprintf(buf, sizeof(buf),
                        "DS1682: Adres 0x%02X: Tijd: %02lu uur : %02lu min\r\n",
@@ -812,7 +799,7 @@ uint16_t INA238_ReadRegister(uint8_t addr, uint8_t reg) {
  * 3. Stuurt een debugbericht via UART met de gemeten spanning.
  * 4. Geeft de raw registerwaarde terug voor eventueel verder gebruik.
  */
-uint16_t INA238_ReadVbus(uint8_t addr, uint8_t reg) {
+uint16_t INA238_ReadVoltage(uint8_t addr, uint8_t reg, uint8_t debug) {
     // 1. Lees de raw 16-bit waarde
     uint16_t raw = INA238_ReadRegister(addr, reg);
 
@@ -821,10 +808,10 @@ uint16_t INA238_ReadVbus(uint8_t addr, uint8_t reg) {
     float voltage = signed_val * 3.125e-3f;  // V
 
     // 3. Debug-output via UART
-    if(Debug_INA238_ReadVbus == 1){
+    if(debug == 1){
     	char buf[64];
     	int len = snprintf(buf, sizeof(buf),
-                       "INA238: Adres 0x%02X: VBUS = %.2f V\r\n",
+                       "INA238: Adres 0x%02X: Voltage = %.2f V\r\n",
                        addr, voltage);
     	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
     }
@@ -832,11 +819,85 @@ uint16_t INA238_ReadVbus(uint8_t addr, uint8_t reg) {
     return raw;
 }
 
+// Amp nog doen!!
+
+
+uint16_t INA238_ReadTemp(uint8_t addr, uint8_t debug){
+	// 1. Lees de ruwe 16-bit waarde
+	uint16_t raw = INA238_ReadRegister(addr, INA238_REG_DIETEMP);
+
+	// 2. Shift 4 bits naar rechts (4 LSB's zijn altijd nul)
+	raw >>= 4;
+
+	// 3. Converteer naar signed 13-bit waarde
+	// (bit 12 = sign bit, dus cast naar int16_t met masking)
+	if (raw & 0x1000) { // Als bit 12 (sign bit) gezet is
+		raw |= 0xE000;  // Zet de bovenste bits voor negatieve waarde
+	}
+	int16_t signed_val = (int16_t)raw;
+
+	// 4. Bereken temperatuur (1 LSB = 0.125 °C)
+	float temp = signed_val * 0.125f;
+
+	// 5. Debug via UART
+	if(debug == 1){
+		char buf[64];
+		int len = snprintf(buf, sizeof(buf),
+						   "INA238: Adres 0x%02X, temperatuur = %.2f °C\r\n",
+						   (addr >> 1), temp);
+		HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+	}
+
+	// 6. Retourneer raw (originele waarde)
+	return raw;
+}
+
+HAL_StatusTypeDef INA238_WriteVoltageRegister(uint8_t addr, uint8_t reg, float voltage)
+{
+    // 1. Converteer spanning naar ruwe waarde (volgens 3.125 mV/bit resolutie)
+    uint16_t raw = (uint16_t)lroundf(voltage / 0.003125f);
+
+    // 2. Zet om naar big-endian payload
+    uint8_t payload[2];
+    payload[0] = (uint8_t)(raw >> 8);   // MSB
+    payload[1] = (uint8_t)(raw & 0xFF); // LSB
+
+    // 3. Schrijf naar opgegeven register
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Write(
+        &hi2c3,               // I2C-handle
+        addr,                 // Slaveadres (8-bit)
+        reg,                  // Doelregister
+        I2C_MEMADD_SIZE_8BIT, // Registergrootte
+        payload,              // Gegevens
+        sizeof(payload),      // Lengte
+        HAL_MAX_DELAY
+    );
+
+    // 4. Debug via UART
+    char buf[64];
+    if (status == HAL_OK) {
+        int len = snprintf(buf, sizeof(buf),
+            "INA238: 0x%02X schrijf naar reg 0x%02X = %.3f V\r\n",
+            (addr >> 1), reg, voltage);
+        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+    } else {
+        int len = snprintf(buf, sizeof(buf),
+            "INA238: fout bij schrijf naar reg 0x%02X (addr 0x%02X)\r\n",
+            reg, (addr >> 1));
+        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+    }
+
+    return status;
+}
+
+
+
+
 /*******************************/
 /*interupt handler  */
 /***************************** */
 
-static uint8_t EnqueueCAN(const CAN_RxHeaderTypeDef *hdr, const uint8_t *data) {
+uint8_t EnqueueCAN(const CAN_RxHeaderTypeDef *hdr, const uint8_t *data) {
     uint8_t next = (canHead + 1) % CAN_QUEUE_SIZE;
     if (next == canTail) {
         // buffer vol, laat ISR snel terugkeren
@@ -849,7 +910,7 @@ static uint8_t EnqueueCAN(const CAN_RxHeaderTypeDef *hdr, const uint8_t *data) {
 }
 
 // Haal een bericht uit de ringbuffer; retourneert 1 als gelukt, 0 als leeg
-static uint8_t DequeueCAN(CAN_Msg_t *msg) {
+uint8_t DequeueCAN(CAN_Msg_t *msg) {
     if (canTail == canHead) {
         // buffer leeg
         return 0;
@@ -1012,9 +1073,9 @@ int main(void)
 //Handeling Temp alarm via interrupt PA8
 
 	  ProcessCANMessages();
-	  if (tmpAlertFlag == 1) {
-	    	             // lees temperatuur en stuur bericht
-		  uint16_t rawtemp = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT);
+	  if (TmpAlertFlag == 1) { 				// lees temperatuur en stuur bericht
+
+		  uint16_t rawtemp = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,0);
 		  int16_t signed_val = (int16_t)rawtemp;
 		  float temp = signed_val * 0.0078125f;
 		  char buf[80];
@@ -1022,8 +1083,11 @@ int main(void)
 				  "Alarm! T=%.2f °C  limieten: low=%.2f, high=%.2f\r\n",
 				  temp, AlarmLimitLowSetPoint, AlarmLimitHighSetPoint);
 	     	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
-	     	tmpAlertFlag = 0;
+	     	TmpAlertFlag = 0;
 	  	  }
+
+	  if(InaAlertFlag == 1){               // Lees
+	  }
 
 	 HAL_Delay(500);
 
@@ -1034,20 +1098,21 @@ int main(void)
 /*- Verzenden van data via CAN-Bus									*/
  /*******************************************************************/
 
-	  SendIdent(BOARD, 1, VERSION, SERIAL, BUILDDATE);
-	  SendTemperature(BOARD, 1, TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT));
-	  SendUptime(BOARD, 1, DS1682_ReadElapsedTime(DS1682_I2C_ADDR), DS1682_ReadEventCounter(DS1682_I2C_ADDR));
-	  SendVoltage(BOARD, 1,	INA238_ReadVbus(INA238_I2C_ADDR, INA238_REG_VBUS) , DS1682_ReadElapsedTime(DS1682_I2C_ADDR));
+	  CanSendIdent(BOARD, 1, VERSION, SERIAL, BUILDDATE);
+	  CanSendTemperature(BOARD, 1, TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,0));
+	  CanSendUptime(BOARD, 1, DS1682_ReadElapsedTime(DS1682_I2C_ADDR), DS1682_ReadEventCounter(DS1682_I2C_ADDR));
+	  CanSendVoltage(BOARD, 1,	INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,0),DS1682_ReadElapsedTime(DS1682_I2C_ADDR));
 
 /********************************************************************/
 /* UART testing	  													*/
 /*******************************************************************/
-	  DS1682_SecondsToHMS_Display(DS1682_I2C_ADDR);
-	  uint16_t VBUS1 = INA238_ReadVbus(INA238_I2C_ADDR, INA238_REG_VBUS);
-	  TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT);
+	  DS1682_SecondsToHM_Display(DS1682_I2C_ADDR,0);
+	  uint16_t VBUS1 = INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,1);
+	  uint16_t INATEMP = INA238_ReadTemp(INA238_I2C_ADDR, 1);
+	  TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,1);
+
 
   }
-
 
   /*******************************************************************************************************************************/
 
@@ -1362,11 +1427,11 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : LinkStatus2_Pin */
-  GPIO_InitStruct.Pin = LinkStatus2_Pin;
+  /*Configure GPIO pins : VCALERT_Pin LinkStatus2_Pin */
+  GPIO_InitStruct.Pin = VCALERT_Pin|LinkStatus2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(LinkStatus2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LinkStatus0_Pin */
   GPIO_InitStruct.Pin = LinkStatus0_Pin;

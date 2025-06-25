@@ -42,8 +42,11 @@
 
 // Universele functies
 HAL_StatusTypeDef INA238_WriteRegister(uint8_t reg, uint16_t value);
+HAL_StatusTypeDef INA238_WriteVoltageRegister(uint8_t addr, uint8_t reg, float voltage);
+
 uint16_t INA238_ReadRegister(uint8_t addr, uint8_t reg);
-uint16_t INA238_ReadVbus(uint8_t addr, uint8_t reg);
+uint16_t INA238_ReadVoltage(uint8_t addr, uint8_t reg,uint8_t debug);
+uint16_t INA238_ReadTemp(uint8_t addr, uint8_t debug);
 
 
 #endif // INA238_H

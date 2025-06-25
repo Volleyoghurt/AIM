@@ -105,19 +105,15 @@ typedef struct {
 static CAN_Msg_t canQueue[CAN_QUEUE_SIZE];
 static volatile uint8_t canHead = 0, canTail = 0;
 
-// Prototype (zorg dat dit één keer staat, vóór gebruik)
+// Prototype
 static uint8_t EnqueueCAN(const CAN_RxHeaderTypeDef *hdr, const uint8_t *data);
 static uint8_t DequeueCAN(CAN_Msg_t *msg);
 
-
-
-
-
-
-void SendTemperature(uint8_t board, uint8_t index, uint16_t temperature);
-void SendIdent(uint8_t board, uint8_t index, uint8_t id, uint8_t serid, uint8_t bdate);
-void SendUptime(uint8_t board, uint8_t index, uint32_t uptime_seconds, uint32_t reset);
-void SendVoltage(uint8_t board, uint8_t index, uint32_t voltage, uint32_t time);
+void CanSendMessage(uint32_t extId, const uint8_t payload[8], uint8_t length,uint8_t debug);
+void CanSendTemperature(uint8_t board, uint8_t index, uint16_t temperature);
+void CanSendIdent(uint8_t board, uint8_t index, uint8_t id, uint8_t serid, uint8_t bdate);
+void CanSendUptime(uint8_t board, uint8_t index, uint32_t uptime_seconds, uint32_t reset);
+void CanSendVoltage(uint8_t board, uint8_t index, uint32_t voltage, uint32_t time);
 
 
 #endif /* INC_CAN_H_ */

@@ -61,6 +61,9 @@ void Error_Handler(void);
 #define MCO_GPIO_Port GPIOA
 #define VCP_TX_Pin GPIO_PIN_2
 #define VCP_TX_GPIO_Port GPIOA
+#define VCALERT_Pin GPIO_PIN_5
+#define VCALERT_GPIO_Port GPIOA
+#define VCALERT_EXTI_IRQn EXTI9_5_IRQn
 #define LinkStatus2_Pin GPIO_PIN_6
 #define LinkStatus2_GPIO_Port GPIOA
 #define LinkStatus2_EXTI_IRQn EXTI9_5_IRQn

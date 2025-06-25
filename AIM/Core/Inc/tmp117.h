@@ -18,13 +18,11 @@
 #define TMP117_REG_DEVICE_ID     0x0F
 
 // Functieprototypes
-HAL_StatusTypeDef TMP117_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value);
 uint16_t TMP117_ReadRegister(uint8_t addr, uint8_t reg);
-uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg);
+HAL_StatusTypeDef TMP117_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value);
+uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg,uint8_t debug);
 void TMP_SetAlarmTemp(uint8_t addr, uint8_t reg, float temp);
-HAL_StatusTypeDef TMP117_Set_TnA(uint8_t addr, uint8_t  enable);
-void TMP117_Display_Register (uint8_t addr, uint16_t Register);
-
-
+HAL_StatusTypeDef TMP117_WriteMaskedRegister(uint8_t addr, uint8_t reg, uint16_t mask, uint16_t value);
+void TMP117_Display_Register(uint8_t addr, uint16_t Register);
 
 #endif // TMP117_H

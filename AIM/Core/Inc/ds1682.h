@@ -34,15 +34,7 @@ uint8_t DS1682_ReadRegister(uint8_t addr, uint8_t reg);
 uint32_t DS1682_ReadElapsedTime(uint8_t addr);
 uint32_t DS1682_ReadPowerOnTime(uint8_t addr);
 uint16_t DS1682_ReadEventCounter(uint8_t addr);
-void DS1682_Init(void);
-
-// Formatteer elapsed time als "uu:mm:ss". Buffer moet minimaal 9+1 bytes groot zijn.
-void DS1682_FormatElapsedTimeHMS(char *buf);
-
-// Formatteer power-on time als "uu:mm:ss". Buffer moet minimaal 9+1 bytes groot zijn.
-void DS1682_FormatPowerOnTimeHMS(char *buf);
-
-static void DS1682_SecondsToHMS_Display(uint8_t addr);
+void DS1682_SecondsToHM_Display(uint8_t addr,uint8_t debug);
 
 
 #endif // DS1682_H
