@@ -29,6 +29,8 @@
 #define DS1682_REG_RESET_ENABLE       0x1D
 
 // Functieprototypes
+
+void DS1682_Init(uint8_t addr,uint8_t config);
 HAL_StatusTypeDef DS1682_WriteRegister(uint8_t addr, uint8_t reg, uint8_t value);
 uint8_t DS1682_ReadRegister(uint8_t addr, uint8_t reg);
 uint32_t DS1682_ReadElapsedTime(uint8_t addr);

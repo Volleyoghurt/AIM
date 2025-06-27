@@ -41,6 +41,7 @@
 #define BUILDDATE 060625
 #define SERIAL 1337
 #define BOARD 1
+#define LINK_HIGH_TIMEOUT_MS 500
 
 /* USER CODE END PD */
 
@@ -57,6 +58,7 @@ I2C_HandleTypeDef hi2c3;
 DMA_HandleTypeDef hdma_i2c1_rx;
 DMA_HandleTypeDef hdma_i2c1_tx;
 
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -71,6 +73,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2C3_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 void UART_MSG(void);
 /* USER CODE END PFP */
@@ -89,7 +92,9 @@ uint8_t TempReady 		= 0;
 uint8_t TmpAlertFlag 	= 0;
 uint8_t InaAlertFlag 	= 0;
 char TempBuf[64];
-
+uint32_t linkHighTimestamp = 0;
+uint8_t  linkErrorFlag     = 0;
+uint32_t lastLinkPulseTime = 0;
 
 
 
@@ -107,80 +112,84 @@ float AlarmLimitLowSetPoint 	= 26.0f;
 // Ontvangst interupt voor CAN-bus berichten (gebruikt voor debug).
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
-	 CAN_Msg_t msg;
-	    // haal header + data op
-	 HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &msg.header, msg.data);
-	    // probeer in queue te zetten (of negeren als vol)
-	 EnqueueCAN(&msg.header, msg.data);
-}
-//Interupt test
+    CAN_Msg_t msg;
 
+    // 1. Haal de CAN-header en de bijbehorende data (max 8 bytes) op uit FIFO0
+    //    Dit wordt aangeroepen zodra een bericht binnenkomt in FIFO0 (interrupt-driven)
+    HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &msg.header, msg.data);
+
+    // 2. Plaats het bericht in de software-queue (bijv. ringbuffer of wachtrij)
+    //    EnqueueCAN retourneert meestal niets, dus als de queue vol is wordt het bericht genegeerd
+    EnqueueCAN(&msg.header, msg.data);
+}
+
+/**
+ * @brief GPIO External Interrupt Callback.
+ *
+ * Deze functie handelt EXTI-interrupts af van meerdere GPIO-pinnen:
+ * - LinkStatus1_Pin: Detecteert verbindingsproblemen via een puls.
+ * - TMPALERT_Pin: Waarschuwt wanneer TMP117 temperatuur buiten limieten meet.
+ * - VCALERT_Pin: Signaleert spannings- of stroomfouten via INA238.
+ *
+ * Bij een langdurige hoog-signaal op LinkStatus1 (> LINK_HIGH_TIMEOUT_MS) wordt een foutmelding gegenereerd.
+ * Als de activiteit herstelt (puls korter dan timeout), wordt de fout automatisch gecleared.
+ *
+ * @param GPIO_Pin De GPIO-pin waarvoor de interrupt plaatsvond.
+ */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    if (GPIO_Pin == LinkStatus1_Pin)  // Pas aan op jouw pin
+	if (GPIO_Pin == LinkStatus1_Pin)
+	    {
+	        GPIO_PinState state = HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin);
+
+	        if (state == GPIO_PIN_SET)
+	        {
+	            // Start van hoog-signaal detecteren
+	            linkHighTimestamp = HAL_GetTick();
+	        }
+	        else
+	        {
+	            // Puls is weer laag → reset fout als het een korte puls was
+	            if (linkErrorFlag)
+	            {
+	                linkErrorFlag = 0;
+	                OnLinkRecovered();
+	            }
+	        }
+        // LED-blink bij ontvangen puls
+        HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
+    }
+    else if (GPIO_Pin == TMPALERT_Pin)
     {
-        // Lees de actuele stand van de pin
-        GPIO_PinState state = HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin);
-
-
-        // Zet de LED gelijk aan de pulsstatus
-       HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, state);
-
+        TmpAlertFlag = 1;
     }
-
-    if (GPIO_Pin == TMPALERT_Pin)
-      {
-    	  TmpAlertFlag = 1;
-
-     } else {
-          __NOP();
-    }
-
-    if(GPIO_Pin == InaAlertFlag)
+    else if (GPIO_Pin == VCALERT_Pin)
     {
-    	InaAlertFlag = 1;
+        InaAlertFlag = 1;
+    }
+    else
+    {
+        __NOP();
     }
 }
 
-
-// init van de AIM bij eerste opstart MCU
-
-void   AIM_INIT(void)
+/**
+ * @brief Converteert een spanningswaarde naar een 16-bit registerwaarde op basis van opgegeven LSB.
+ *
+ * Deze functie rekent een spanning (of stroom) in volt om naar een digitale waarde
+ * zoals verwacht door registers van de INA238 (of vergelijkbare IC's).
+ * De LSB bepaalt de resolutie: hoeveel volt één bit voorstelt.
+ *
+ * @param voltage   De gewenste waarde in volt (bijv. 16.0 voor 16V of 0.5 voor 0.5A).
+ * @param lsb       De resolutie in volt per bit (bijv. 0.003125 voor spanning, 0.0005 voor stroom).
+ *
+ * @return uint16_t De afgeronde digitale waarde die past bij het registerformaat van 16 bits.
+ */
+uint16_t ConvertVoltageToRaw(float voltage, float lsb)
 {
-	//Start bericht
-	  UART_MSG();
-//
-	// Temperatuur alarm instellen
-	//if(TMP117_ReadRegister(TMP117_I2C_ADDR,TMP117_REG_CONFIG) != 0xffff)
-	//{
-		TMP_SetAlarmTemp(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT,AlarmLimitLowSetPoint);
-		TMP_SetAlarmTemp(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT,AlarmLimitHighSetPoint);
-		uint16_t AlarmLimitLow = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT,0);
-		uint16_t AlarmLimitHigh = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT,0);
-
-
-		// TnA config instellen Temp Mode = 1, Alert mode = 0
-		TMP117_WriteMaskedRegister(TMP117_I2C_ADDR, TMP117_REG_CONFIG, (1 << 4), (1 << 4));
-
-
-		TMP117_Display_Register (TMP117_I2C_ADDR, TMP117_REG_CONFIG);
-		//}
-
-		INA238_SetAlarmBOVL(INA238_I2C_ADDR,3);
-
-
-	 	 // Send identificatie van het board
-	 	 CanSendIdent(BOARD, 1, VERSION, SERIAL, BUILDDATE);
-
+    return (uint16_t)lroundf(voltage / lsb);
 }
 
-
-void UART_MSG(void)
-{
-	char buf[80];
-	int len = snprintf(buf, sizeof(buf),"*************AIM gestart!**********\n\r");
-  	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
-}
 
 /*----------------------------------------------------------------------------*/
 /*— Can-bus zend-functies  —*/
@@ -300,6 +309,21 @@ void CanSendVoltage(uint8_t board, uint8_t index, uint32_t voltage, uint32_t tim
 	CanSendMessage(id, (uint8_t*)&msg, sizeof(msg),0);
 }
 
+void CanSendCurrent(uint8_t board, uint8_t index, uint32_t current, uint32_t time){
+	CurrentMsg_t msg;
+	msg.value = current;
+	msg.status = 0x00;
+	msg.timestamp = time;
+
+	uint32_t id = CAN_EXT_ID(
+		PRIO_STROOM,
+		board,
+		TYPE_STROOM,
+		index
+	);
+	CanSendmessage(id, (uint8_t*)&msg, sizeof(msg),0);
+}
+
 // Can-bus zend bericht.
 /**
  * Verstuur een CAN-bericht via één van de TX-mailboxen van bxCAN
@@ -344,7 +368,6 @@ void CanSendMessage(uint32_t extId, const uint8_t payload[8], uint8_t length,uin
 /*----------------------------------------------------------------------------*/
 /*— I2C TMP117 communicatie functies
 ----------------------------------------------------------------------------*/
-
 
 /**
  * Lees een 16-bit register uit de TMP117 via I²C
@@ -445,7 +468,7 @@ HAL_StatusTypeDef TMP117_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value
  * 5. Geeft de originele raw-waarde terug voor verder gebruik of logging.
  */
 
-uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg,uint8_t debug) {
+uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg, uint8_t debug) {
 	// Lees ruwe 16-bit temperatuur
 	uint16_t raw = TMP117_ReadRegister(addr, reg);
 
@@ -466,9 +489,6 @@ uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg,uint8_t debug) {
 	// Return raw registerwaarde (LSB = 7.8125 m°C)
 	return raw;
 }
-
-// Alarm register schrijven met gewenste temperatuur.
-
 
 /**
  * Schrijf een temperatuur­waarde naar de TMP117
@@ -520,77 +540,47 @@ HAL_StatusTypeDef TMP117_WriteTemperatureC(uint8_t addr, uint8_t reg, float temp
     return HAL_check;
 }
 
-
-/*
- * Stel het temperatuur-alarm (T<sub>nA</sub>-point) in op de TMP117
- * @param addr  7-bit I²C-adres van de TMP117 (linksshifted <<1 voor HAL)
- * @param reg   Registerpointer voor het hoge of lage alarm­punt (TMP117_REG_T_HIGH_LIMIT of TMP117_REG_T_LOW_LIMIT)
- * @param temp  Gewenste alarmtemperatuur in °C (float)
- *
- * Deze functie schrijft de temperatuur in °C om naar de ruwe 16-bit waarde
- * en gebruikt TMP117_WriteTemperatureC om het register te vullen. Er wordt
- * een debugbericht via UART verzonden om succes of falen te melden.
-*/
-void TMP_SetAlarmTemp(uint8_t addr, uint8_t reg, float temp)
+/**
+ * @brief  Initialiseert de TMP117 met configuratie en optionele temperatuurgrenzen.
+ *         Schrijft in één keer alle opgegeven instellingen.
+ * @param  addr          I²C slave-adres van de TMP117 (8-bit)
+ * @param  config        Waarde voor het CONFIG-register (bijv. continuous mode, averaging)
+ * @param  temp_high     Bovenste temperatuurgrens (°C)
+ * @param  temp_low      Onderste temperatuurgrens (°C)
+ * @param  temp_crit     Kritieke temperatuurgrens (°C)
+ */
+void TMP117_Init(uint8_t addr,
+                 uint16_t config,
+                 float temp_high,
+                 float temp_low)
 {
-    // Probeer het alarmregister te schrijven met de opgegeven temperatuur
-    if (TMP117_WriteTemperatureC(addr, reg, temp) == HAL_OK) {
-        // Bij succes: informeer via UART
-        char buf[64];
-        int len = snprintf(buf, sizeof(buf),
-                           "TMP117: Adres 0x%02X, alarmpoint ingesteld op %.2f °C\r\n",
-                           (addr >> 1), temp);
-        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
-    } else {
-        // Bij mislukking: log een communicatiefout
-        char buf[64];
-        int len = snprintf(buf, sizeof(buf),
-                           "TMP117: Adres 0x%02X, geen I2C-communicatie bij alarmset\r\n",
-                           (addr >> 1));
-        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+    // TMP117 gebruikt 0.0078125°C/LSB → 1/128
+    const float lsb = 0.0078125f;
+
+    // Zet °C om naar raw registerwaarden (2-complement formaat)
+    uint16_t raw_high  = (int16_t)(temp_high  / lsb);
+    uint16_t raw_low   = (int16_t)(temp_low   / lsb);
+
+    // Struct voor reg/waarde-koppels
+    typedef struct {
+        uint8_t reg;
+        uint16_t value;
+    } TMP117_WritePair_t;
+
+    // Lijst met initialisatiewaarden
+    const TMP117_WritePair_t init_config[] = {
+        { TMP117_REG_CONFIG, 		config     },
+        { TMP117_REG_T_HIGH_LIMIT,  raw_high   },
+        { TMP117_REG_T_LOW_LIMIT,   raw_low    },
+    };
+
+    // Registreer alle waarden in volgorde
+    for (uint8_t i = 0; i < sizeof(init_config) / sizeof(init_config[0]); i++) {
+        TMP117_WriteRegister(addr,
+                             init_config[i].reg,
+                             init_config[i].value);
     }
 }
-
-
-
-/**
- * Past een of meerdere bits aan in een 16-bits register van de TMP117.
- *
- * Deze functie voert een read-modify-write uit:
- * 1. Leest het opgegeven 16-bits register.
- * 2. Wijzigt alleen de bits die overeenkomen met het meegegeven mask.
- * 3. Schrijft het gewijzigde register terug naar de TMP117.
- *
- * @param addr     7-bits I²C-adres van de TMP117 (left-shifted <<1 voor HAL-functies).
- * @param reg      Registeradres dat aangepast moet worden (bijv. TMP117_REG_CONFIG).
- * @param mask     Bitmasker van de bits die gewijzigd mogen worden (bijv. 0x00F0).
- * @param value    Gewenste waarde voor die bits (bijv. 0x0010 zet bit 4 aan).
- * @return         HAL-status (HAL_OK bij succes, anders een foutcode).
- */
-HAL_StatusTypeDef TMP117_WriteMaskedRegister(uint8_t addr, uint8_t reg, uint16_t mask, uint16_t value)
-{
-    HAL_StatusTypeDef ret;
-    uint16_t reg_val;
-    uint8_t buf[2];
-
-    // 1) Lees huidige registerwaarde
-    ret = HAL_I2C_Mem_Read(&hi2c1, addr, reg, I2C_MEMADD_SIZE_8BIT,
-                           (uint8_t*)&reg_val, sizeof(reg_val), HAL_MAX_DELAY);
-    if (ret != HAL_OK) return ret;
-
-    // 2) Mask bits en zet nieuwe waarde
-    reg_val = (reg_val & ~mask) | (value & mask);
-
-    // 3) Zet MSB/LSB in buffer
-    buf[0] = (uint8_t)(reg_val >> 8);
-    buf[1] = (uint8_t)(reg_val & 0xFF);
-
-    // 4) Schrijf terug naar het register
-    ret = HAL_I2C_Mem_Write(&hi2c1, addr, reg, I2C_MEMADD_SIZE_8BIT,
-                            buf, sizeof(buf), HAL_MAX_DELAY);
-    return ret;
-}
-
 
 /**
  * Toon de inhoud van een 16-bit register van de TMP117 via UART
@@ -752,39 +742,183 @@ void DS1682_SecondsToHM_Display(uint8_t addr,uint8_t debug) {
 /*— I2C INA238 sensor communicatie functies
 /*----------------------------------------------------------------------------*/
 
-
 /**
- * Lees een 16-bit register uit de INA238 via I²C
- * @param addr  7-bit I²C-adres van de INA238 (linksshifted <<1 voor HAL)
- * @param reg   8-bit registerpointer binnen de INA238
- * @return      16-bit raw registerwaarde (MSB first)
- *
- * Deze functie gebruikt HAL_I2C_Mem_Read om twee bytes te lezen. Bij een
- * communicatiefout wordt een debugmelding verzonden via UART. De leesbuffer
- * wordt vervolgens samengevoegd tot één 16-bit waarde.
+ * @brief  Leest een 16-bit register van de INA238 via I²C.
+ * @param  addr   8-bit I²C-adres van de INA238 (linksshifted voor HAL).
+ * @param  reg    Registeradres binnen de INA238.
+ * @retval 16-bit registerwaarde, of 0xFFFF bij fout.
  */
-uint16_t INA238_ReadRegister(uint8_t addr, uint8_t reg) {
-    uint8_t raw[2] = {0, 0};
+uint16_t INA238_ReadRegister(uint8_t addr, uint8_t reg)
+{
+    uint8_t rx[2];
+    HAL_StatusTypeDef HALStatus;
 
-    // Lees 2 bytes van het opgegeven register
-    if (HAL_I2C_Mem_Read(&hi2c3,
-                         addr,                  // slave-adres inclusief R/W-bit
-                         reg,                   // registerpointer
-                         I2C_MEMADD_SIZE_8BIT,  // registeradresgrootte
-                         raw,                   // ontvangbuffer
-                         2,                     // aantal bytes
-                         HAL_MAX_DELAY) != HAL_OK)
-    {
-        // Bij fout: log melding via UART
+    // Lees 2 bytes uit het opgegeven register (blokkerend)
+    HALStatus = HAL_I2C_Mem_Read(&hi2c3,          // I²C-handle voor INA238
+                                 addr,            // 8-bit slave-adres
+                                 reg,             // Registeradres
+                                 I2C_MEMADD_SIZE_8BIT,
+                                 rx,              // Buffer om 2 bytes in te lezen
+                                 2,
+                                 HAL_MAX_DELAY);  // Blokkerende wachttijd
+
+    if (HALStatus != HAL_OK) {
+        // Bij fout: stuur foutmelding via UART
         char buf[64];
         int len = snprintf(buf, sizeof(buf),
-                           "INA238: Adres 0x%02X: geen I2C-communicatie\r\n",
-                           addr);
+            "INA238: Adres 0x%02X, geen I2C-communicatie\r\n",
+            (addr >> 1));  // Terug naar 7-bit voor leesbaarheid
+
+        HAL_UART_Transmit(&huart2,
+                          (uint8_t*)buf,
+                          len,
+                          HAL_MAX_DELAY);
+        return 0xFFFF;  // Foutwaarde
+    } else {
+        // Combineer MSB en LSB tot één 16-bit waarde
+        return (uint16_t)((rx[0] << 8) | rx[1]);
+    }
+}
+
+
+/**
+ * @brief  Toon de inhoud van een 16-bit register van de INA238 via UART.
+ * @param  addr      8-bit I²C-adres van de INA238 (linksshifted voor HAL).
+ * @param  reg       Registeradres binnen de INA238 (bijv. INA238_REG_CONFIG).
+ *
+ * Deze functie:
+ * 1. Leest het opgegeven register via INA238_ReadRegister().
+ * 2. Zet de 16-bit waarde om naar een binaire string (MSB eerst).
+ * 3. Stuurt de binaire en hexadecimale representatie via UART.
+ */
+void INA238_Display_Register(uint8_t addr, uint8_t reg)
+{
+    // Lees de 16-bit registerwaarde
+    uint16_t reg_val = INA238_ReadRegister(addr, reg);
+    if (reg_val != 0xFFFF)  // 0xFFFF bij fout, aanpasbaar naar je eigen error handling
+    {
+        // Buffer voor binaire representatie (16 bits + null-terminator)
+        char bin_str[17];
+        for (int i = 0; i < 16; i++) {
+            bin_str[i] = (reg_val & (1 << (15 - i))) ? '1' : '0';
+        }
+        bin_str[16] = '\0';
+
+        // Format output (binaire + hex + registeradres)
+        char buf[64];
+        int len = snprintf(buf, sizeof(buf),
+            "INA238: Adres 0x%02X, Reg 0x%02X = 0b%s (0x%04X)\r\n",
+            (addr >> 1),  // 7-bit adres voor leesbaarheid
+            reg,
+            bin_str,
+            (unsigned int)reg_val);
+
         HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
     }
+}
 
-    // Combineer MSB en LSB tot één 16-bit waarde
-    return (uint16_t)((raw[0] << 8) | raw[1]);
+/**
+ * @brief  Schrijft een 16-bit waarde naar een register van de INA238 via I²C.
+ * @param  addr: Het 8-bit I²C slave-adres van de INA238 (inclusief R/W-bit op 0).
+ * @param  reg:  Het registeradres binnen de INA238 (8-bit).
+ * @param  value: De 16-bit waarde die naar het register geschreven moet worden.
+ * @retval HAL status (HAL_OK bij succes, anders foutcode).
+ */
+HAL_StatusTypeDef INA238_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value)
+{
+    uint8_t tx[2];
+
+    // Stap 1: Splits de 16-bit waarde op in 2 bytes (big-endian formaat)
+    // MSB eerst (INA238 verwacht data in big-endian volgorde)
+    tx[0] = (value >> 8) & 0xFF;  // Most Significant Byte
+    tx[1] =  value        & 0xFF; // Least Significant Byte
+
+    // Stap 2: Verstuur de twee bytes naar het opgegeven register via I²C
+    HAL_StatusTypeDef HAL_check = HAL_I2C_Mem_Write(
+        &hi2c3,                // I²C interface gebruikt voor de INA238
+        addr,                  // Slave-adres van de INA238 (meestal 0x80 t/m 0x8E)
+        reg,                   // Adres van het register binnen de INA238
+        I2C_MEMADD_SIZE_8BIT,  // Adresgrootte van het register (8-bit)
+        tx,                    // Buffer met de te verzenden bytes (MSB, LSB)
+        2,                     // Aantal bytes dat verstuurd wordt
+        HAL_MAX_DELAY          // Maximale wachttijd (blokkerend)
+    );
+
+    // Stap 3: Foutafhandeling (optioneel)
+    // Als de transmissie is mislukt, stuur dan een foutmelding via UART voor debugdoeleinden
+    if (HAL_check != HAL_OK)
+    {
+        char buf[64];
+        int len = snprintf(buf, sizeof(buf),
+            "INA238: Adres 0x%02X, geen I2C-communicatie\r\n",
+            (addr >> 1)  // Converteer naar 7-bit adres voor leesbaarheid
+        );
+        HAL_UART_Transmit(&huart2,
+                          (uint8_t*)buf,
+                          len,
+                          HAL_MAX_DELAY);
+    }
+
+    // Stap 4: Retourneer de status van de I²C-operatie
+    return HAL_check;
+}
+
+/**
+ * @brief  Initialiseert de INA238 met vooraf gedefinieerde configuratie- en drempelwaarden.
+ *         Schrijft alle relevante instellingen in één keer naar het apparaat.
+ * @param  addr          I²C slave-adres van de INA238 (8-bit)
+ * @param  config        Waarde voor het CONFIG-register (bijv. mode & averaging)
+ * @param  adc_config    Waarde voor het ADC_CONFIG-register (meetsnelheid, mode)
+ * @param  shunt_cal     Kalibratiewaarde voor shuntmeting (bijv. om stroom in A te krijgen)
+ * @param  diag_alert    Waarde voor het DIAG_ALERT-register (welke drempels triggeren alerts)
+ * @param  solv_threshold Spanning (in volt) voor Shunt Over Limit drempel
+ * @param  sulv_threshold Spanning voor Shunt Under Limit drempel
+ * @param  bovl_threshold Spanning voor Bus Over Voltage Limit drempel
+ * @param  buvl_threshold Spanning voor Bus Under Voltage Limit drempel
+ */
+void INA238_Init(uint8_t addr,
+                 uint16_t config,
+                 uint16_t adc_config,
+                 uint16_t shunt_cal,
+                 uint16_t diag_alert,
+                 float solv_threshold,
+                 float sulv_threshold,
+                 float bovl_threshold,
+                 float buvl_threshold)
+{
+    float lsb_voltage = 0.003125f;  // Resolutie van de spanningsdrempelregisters (datasheetwaarde)
+
+    // Zet de spanningsdrempels om naar 16-bit registerwaarden
+    uint16_t solv_raw = ConvertVoltageToRaw(solv_threshold, lsb_voltage);
+    uint16_t sulv_raw = ConvertVoltageToRaw(sulv_threshold, lsb_voltage);
+    uint16_t bovl_raw = ConvertVoltageToRaw(bovl_threshold, lsb_voltage);
+    uint16_t buvl_raw = ConvertVoltageToRaw(buvl_threshold, lsb_voltage);
+
+    // Datastructuur om registeradres + gewenste waarde te groeperen
+    typedef struct {
+        uint8_t reg;     // Registeradres in de INA238
+        uint16_t value;  // Te schrijven 16-bit waarde
+    } INA238_WritePair_t;
+
+    // Initialisatiearray met alle te schrijven instellingen
+    const INA238_WritePair_t init_config[] = {
+        { INA238_REG_CONFIG,     config     },
+        { INA238_REG_ADC_CONFIG, adc_config },
+        { INA238_REG_VSHUNT_CAL, shunt_cal  },
+        { INA238_REG_DIAG_ALERT, diag_alert },
+        { INA238_REG_SOLV,       solv_raw   },
+        { INA238_REG_SULV,       sulv_raw   },
+        { INA238_REG_BOLV,       bovl_raw   },
+        { INA238_REG_BULV,       buvl_raw   },
+    };
+
+    // Doorloop alle init-instellingen en schrijf elke waarde naar het bijbehorende register
+    for (uint8_t i = 0; i < sizeof(init_config) / sizeof(init_config[0]); i++) {
+        INA238_WriteRegister(addr,                // Doelapparaat (slave-adres)
+                             init_config[i].reg,  // Registeradres
+                             init_config[i].value // Te schrijven waarde
+        );
+    }
 }
 
 /**
@@ -819,9 +953,91 @@ uint16_t INA238_ReadVoltage(uint8_t addr, uint8_t reg, uint8_t debug) {
     return raw;
 }
 
-// Amp nog doen!!
+/**
+ * @brief  Leest de stroomwaarde uit een INA238-register en stuurt optioneel debuginfo via UART.
+ *
+ * @param  addr   Het 7-bit I2C-adres van de INA238 (linker-shifted indien nodig).
+ * @param  reg    Het registeradres waaruit de stroom gemeten wordt (INA238_REG_CURRENT).
+ * @param  debug  Indien 1: verstuur debugoutput via UART.
+ *
+ * @retval raw  De ruwe 16-bit registerwaarde (signed), zoals uit het device gelezen.
+ */
+uint16_t INA238_ReadCurrent(uint8_t addr, uint8_t reg, uint8_t debug)
+{
+    // 1) Lees 16-bit waarde uit opgegeven register
+    uint16_t raw = INA238_ReadRegister(addr, reg);
 
+    // 2) Zet om naar signed waarde (INA238 levert signed current in 2's complement)
+    int16_t signed_val = (int16_t)raw;
 
+    // 3) Reken ruwe waarde om naar ampère (LSB = 0.5 mA = 5e-4 A volgens datasheet)
+    float current = signed_val * 5e-4f;
+
+    // 4) Optioneel: stuur de stroomwaarde via UART (voor debugdoeleinden)
+    if (debug == 1) {
+        char buf[64];
+        int len = snprintf(buf, sizeof(buf),
+                           "INA238: Adres 0x%02X: Current = %.3f A\r\n",
+                           addr, current);
+        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+    }
+
+    // 5) Geef de ruwe waarde terug
+    return raw;
+}
+
+/**
+ * @brief  Leest de 24-bit vermogenswaarde uit de INA238 en stuurt optioneel debugoutput via UART.
+ *
+ * @param  addr   Het 7-bit I2C-adres van de INA238 (left-shifted bij gebruik in HAL).
+ * @param  reg    Het registeradres (moet INA238_REG_POWER zijn, = 0x03).
+ * @param  debug  Indien 1: toon vermogenswaarde via UART.
+ *
+ * @retval raw24  De ruwe 24-bit waarde (in een 32-bit container).
+ */
+uint32_t INA238_ReadPower(uint8_t addr, uint8_t reg, uint8_t debug)
+{
+    uint8_t rx[3];
+    HAL_StatusTypeDef status;
+
+    // Lees 3 bytes (24 bits) uit het vermogensregister
+    status = HAL_I2C_Mem_Read(&hi2c3,
+                              addr,                 // 8-bit I²C-adres
+                              reg,                  // Registeradres (0x03)
+                              I2C_MEMADD_SIZE_8BIT,
+                              rx,                   // Buffer voor 3 bytes
+                              3,                    // Aantal te lezen bytes
+                              HAL_MAX_DELAY);
+
+    if (status != HAL_OK) {
+        // Debug: fout bij communicatie
+        char buf[64];
+        int len = snprintf(buf, sizeof(buf),
+                           "INA238: Adres 0x%02X, geen I2C-communicatie\r\n",
+                           (addr >> 1));
+        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+        return 0xFFFFFF;  // Foutwaarde
+    }
+
+    // Combineer de 3 bytes tot één 24-bit waarde (MSB first)
+    uint32_t raw = ((uint32_t)rx[0] << 16) |
+                   ((uint32_t)rx[1] << 8)  |
+                   (uint32_t)rx[2];
+
+    // Vermogen berekenen in watt (volgens datasheet):
+    // Power_LSB = Current_LSB * 25, aannemend Current_LSB = 0.0005 A
+    float power = raw * 0.0005f * 25.0f;  // = raw * 0.0125f
+
+    if (debug) {
+        char buf[64];
+        int len = snprintf(buf, sizeof(buf),
+                           "INA238: Adres 0x%02X: Power = %.3f W (raw=0x%06lX)\r\n",
+                           (addr >> 1), power, (unsigned long)raw);
+        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+    }
+
+    return raw;
+}
 uint16_t INA238_ReadTemp(uint8_t addr, uint8_t debug){
 	// 1. Lees de ruwe 16-bit waarde
 	uint16_t raw = INA238_ReadRegister(addr, INA238_REG_DIETEMP);
@@ -852,43 +1068,61 @@ uint16_t INA238_ReadTemp(uint8_t addr, uint8_t debug){
 	return raw;
 }
 
-HAL_StatusTypeDef INA238_WriteVoltageRegister(uint8_t addr, uint8_t reg, float voltage)
-{
-    // 1. Converteer spanning naar ruwe waarde (volgens 3.125 mV/bit resolutie)
-    uint16_t raw = (uint16_t)lroundf(voltage / 0.003125f);
+/************************************************************/
+/* Link detectie functies */
+/***********************************************************/
 
-    // 2. Zet om naar big-endian payload
-    uint8_t payload[2];
-    payload[0] = (uint8_t)(raw >> 8);   // MSB
-    payload[1] = (uint8_t)(raw & 0xFF); // LSB
-
-    // 3. Schrijf naar opgegeven register
-    HAL_StatusTypeDef status = HAL_I2C_Mem_Write(
-        &hi2c3,               // I2C-handle
-        addr,                 // Slaveadres (8-bit)
-        reg,                  // Doelregister
-        I2C_MEMADD_SIZE_8BIT, // Registergrootte
-        payload,              // Gegevens
-        sizeof(payload),      // Lengte
-        HAL_MAX_DELAY
-    );
-
-    // 4. Debug via UART
-    char buf[64];
-    if (status == HAL_OK) {
-        int len = snprintf(buf, sizeof(buf),
-            "INA238: 0x%02X schrijf naar reg 0x%02X = %.3f V\r\n",
-            (addr >> 1), reg, voltage);
-        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
-    } else {
-        int len = snprintf(buf, sizeof(buf),
-            "INA238: fout bij schrijf naar reg 0x%02X (addr 0x%02X)\r\n",
-            reg, (addr >> 1));
-        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+void CheckInitialLinkStatus(void) {
+    HAL_Delay(10);
+	if (HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin) == GPIO_PIN_RESET){
+        linkHighTimestamp = HAL_GetTick();
+        HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
     }
-
-    return status;
 }
+
+
+/**
+ * @brief  Wordt éénmalig aangeroepen bij detectie van een langdurige hoge puls.
+ */
+void OnLinkError(void)
+{
+    // Bijvoorbeeld: stuur foutmelding via UART en zet error-LED
+	char buf[64];
+	int len = snprintf(buf, sizeof(buf),
+							"ERROR: LinkStatus1 high >500ms\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+
+    // Schakel een fout-LED in (stel LD2 is error-led)
+	HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+}
+
+/**
+ * @brief  Wordt éénmalig aangeroepen zodra de link weer normaal functioneert.
+ */
+void OnLinkRecovered(void)
+{
+ 	char buf[64];
+	int len = snprintf(buf, sizeof(buf),
+			"INFO: LinkStatus1 activity resumed\r\n");
+				HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+    // Zet error-LED uit
+    HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+}
+
+
+void CheckLinkTimeout(void)
+{
+    if (HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin) == GPIO_PIN_SET)
+    {
+        uint32_t elapsed = HAL_GetTick() - linkHighTimestamp;
+        if (elapsed >= 500 && !linkErrorFlag)
+        {
+            linkErrorFlag = 1;
+            OnLinkError();  // Foutmelding
+        }
+    }
+}
+
 
 
 
@@ -980,6 +1214,42 @@ void ProcessCANMessages(void) {
 }
 
 
+// init van de AIM bij eerste opstart MCU
+
+void AIM_INIT(void)
+{
+	//Start bericht
+	UART_MSG();
+	TMP117_Init(TMP117_I2C_ADDR, 0x0D80, 27, 24);
+	INA238_Init(INA238_I2C_ADDR, 0x0000, 0xFB68, 0x4096, 0x0001, 0.16384, 0, 0, 0.16384);
+
+
+	uint16_t AlarmLimitLow = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT,0);
+	uint16_t AlarmLimitHigh = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT,0);
+
+
+
+
+
+
+		TMP117_Display_Register (TMP117_I2C_ADDR, TMP117_REG_CONFIG);
+		//}
+
+
+	 	 // Send identificatie van het board
+	 	 CanSendIdent(BOARD, 1, VERSION, SERIAL, BUILDDATE);
+
+	 	CheckInitialLinkStatus();
+
+}
+
+
+void UART_MSG(void)
+{
+	char buf[80];
+	int len = snprintf(buf, sizeof(buf),"*************AIM gestart!**********\n\r");
+  	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+}
 
 /* USER CODE END 0 */
 
@@ -1017,6 +1287,7 @@ int main(void)
   MX_CAN1_Init();
   MX_I2C1_Init();
   MX_I2C3_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 /*----------------------------------------------------------------------------*/
 /*— CAN-bus start en activatie van RX notificatie  —*/
@@ -1067,12 +1338,17 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
- /*----------------------------------------------------------------------------*/
+	  CheckLinkTimeout();  // ← controleer of het signaal al te lang hoog blijft
+
+/*----------------------------------------------------------------------------*/
  /*— Interupts Handeling  —*/
  /*----------------------------------------------------------------------------*/
 //Handeling Temp alarm via interrupt PA8
 
 	  ProcessCANMessages();
+
+
+
 	  if (TmpAlertFlag == 1) { 				// lees temperatuur en stuur bericht
 
 		  uint16_t rawtemp = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,0);
@@ -1086,7 +1362,21 @@ int main(void)
 	     	TmpAlertFlag = 0;
 	  	  }
 
-	  if(InaAlertFlag == 1){               // Lees
+	  if(InaAlertFlag == 1){
+		/*
+
+		  uint16_t rawvoltage = INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,0);
+		  uint16_t rawcurrent = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 0);
+
+		  int16_t signed_val_V = (int16_t)rawvoltage;
+		  float voltage = signed_val * 3.125e-3f;  // V
+
+		  int16_t signed_val_I = (int16_t)rawcurrent;
+		  float current = signed_val * 3.125e-3f;  // V
+		*/
+
+
+		  // Lees
 	  }
 
 	 HAL_Delay(500);
@@ -1107,7 +1397,8 @@ int main(void)
 /* UART testing	  													*/
 /*******************************************************************/
 	  DS1682_SecondsToHM_Display(DS1682_I2C_ADDR,0);
-	  uint16_t VBUS1 = INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,1);
+	  uint16_t Vbus1 = INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,1);
+	  uint16_t Current = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 1);
 	  uint16_t INATEMP = INA238_ReadTemp(INA238_I2C_ADDR, 1);
 	  TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,1);
 
@@ -1350,6 +1641,41 @@ static void MX_I2C3_Init(void)
   /* USER CODE BEGIN I2C3_Init 2 */
 
   /* USER CODE END I2C3_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_HalfDuplex_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
 
 }
 
