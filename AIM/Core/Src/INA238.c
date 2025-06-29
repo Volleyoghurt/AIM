@@ -315,32 +315,42 @@ uint32_t INA238_ReadPower(uint8_t addr, uint8_t reg, uint8_t debug)
 
     return raw;
 }
+/**
+ * @brief  Leest de interne temperatuur van de INA238 via I2C en toont optioneel debug-informatie via UART.
+ * @param  addr: I2C-adres van de INA238 (8-bit, dus inclusief R/W-bit op 0)
+ * @param  debug: indien 1, wordt de temperatuur via UART weergegeven
+ * @retval ruwe (geshiftte) temperatuurwaarde zoals geleverd door de sensor
+ *
+ * Deze functie is bedoeld voor STM32-microcontrollers met HAL. De I2C-verbinding wordt verondersteld via 'hi2c3'.
+ * De temperatuur wordt uit het DIETEMP-register gelezen, dat 13-bit gesigneerde data bevat (uitgelijnd op bits 15:3).
+ */
 uint16_t INA238_ReadTemp(uint8_t addr, uint8_t debug){
-	// 1. Lees de ruwe 16-bit waarde
-	uint16_t raw = INA238_ReadRegister(addr, INA238_REG_DIETEMP);
+    // 1. Lees 16-bit ruwe waarde uit het DIETEMP-register (adres 0x0C)
+    uint16_t raw = INA238_ReadRegister(addr, INA238_REG_DIETEMP);
 
-	// 2. Shift 4 bits naar rechts (4 LSB's zijn altijd nul)
-	raw >>= 4;
+    // 2. De onderste 4 bits zijn altijd nul, dus we verschuiven 4 bits naar rechts
+    raw >>= 4;
 
-	// 3. Converteer naar signed 13-bit waarde
-	// (bit 12 = sign bit, dus cast naar int16_t met masking)
-	if (raw & 0x1000) { // Als bit 12 (sign bit) gezet is
-		raw |= 0xE000;  // Zet de bovenste bits voor negatieve waarde
-	}
-	int16_t signed_val = (int16_t)raw;
+    // 3. Tekenextensie indien het hoogste bit (bit 12 van 13-bit waarde) gezet is
+    //    Hierdoor wordt de 13-bit waarde correct gesigneerd wanneer deze gecast wordt
+    if (raw & 0x1000) {
+        raw |= 0xE000;  // Zet de bovenste bits voor negatieve waarden
+    }
+    int16_t signed_val = (int16_t)raw;
 
-	// 4. Bereken temperatuur (1 LSB = 0.125 °C)
-	float temp = signed_val * 0.125f;
+    // 4. Reken om naar graden Celsius (1 LSB = 0.125 °C volgens datasheet)
+    float temp = signed_val * 0.125f;
 
-	// 5. Debug via UART
-	if(debug == 1){
-		char buf[64];
-		int len = snprintf(buf, sizeof(buf),
-						   "INA238: Adres 0x%02X, temperatuur = %.2f °C\r\n",
-						   (addr >> 1), temp);
-		HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
-	}
+    // 5. Optioneel: stuur debug-informatie via UART2
+    if (debug == 1){
+        char buf[64];
+        int len = snprintf(buf, sizeof(buf),
+                           "INA238: Adres 0x%02X, temperatuur = %.2f °C\r\n",
+                           (addr >> 1), temp);  // addr>>1 om 7-bit slave-adres weer te geven
+        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+    }
 
-	// 6. Retourneer raw (originele waarde)
-	return raw;
+    // 6. Geef de ruwe waarde (13-bit gesigneerde int) terug voor eventueel CAN-gebruik
+    return raw;
 }
+

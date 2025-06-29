@@ -39,7 +39,7 @@ uint32_t DS1682_ReadElapsedTime(uint8_t addr);
 uint32_t DS1682_ReadPowerOnTime(uint8_t addr);
 uint16_t DS1682_ReadEventCounter(uint8_t addr);
 void DS1682_SecondsToHM_Display(uint8_t addr,uint8_t debug);
-
+void DS1682_Display_Register(uint8_t addr, uint8_t Register);
 
 #endif // DS1682_H
 

@@ -389,8 +389,6 @@ int main(void)
 		}
 */
 /*
-
-
 		  uint16_t rawvoltage = INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,0);
 		  uint16_t rawcurrent = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 0);
 

@@ -55,7 +55,7 @@ typedef struct {
 // Universele functies
 
 
-HAL_StatusTypeDef INA238_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value);
+
 void INA238_Init(uint8_t addr,
                  uint16_t config,
                  uint16_t adc_config,
@@ -65,6 +65,7 @@ void INA238_Init(uint8_t addr,
                  float sulv_threshold,
                  float bovl_threshold,
                  float buvl_threshold);
+HAL_StatusTypeDef INA238_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value);
 HAL_StatusTypeDef INA238_WriteVoltageRegister(uint8_t addr, uint8_t reg, float voltage);
 uint16_t INA238_ReadRegister(uint8_t addr, uint8_t reg);
 uint16_t INA238_ReadVoltage(uint8_t addr, uint8_t reg,uint8_t debug);

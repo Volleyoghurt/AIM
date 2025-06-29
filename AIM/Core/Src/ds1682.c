@@ -129,3 +129,37 @@ void DS1682_SecondsToHM_Display(uint8_t addr,uint8_t debug) {
     }
 }
 
+/**
+ * Toon de inhoud van een 8-bit register van de DS1682 via UART
+ * @param addr      7-bit I²C-adres van de DS1682 (linksshifted <<1 voor HAL)
+ * @param Register  Registerpointer dat gelezen wordt
+ *
+ * Deze functie:
+ * 1. Leest het opgegeven register via DS1682_ReadRegister().
+ * 2. Zet de 8-bit waarde om naar een binaire string (MSB eerst).
+ * 3. Stuurt de binaire en hexadecimale representatie via UART.
+ */
+void DS1682_Display_Register(uint8_t addr, uint8_t Register)
+{
+    // Lees de 16-bit registerwaarde
+    uint8_t ConfigRegister = DS1682_ReadRegister(addr, Register);
+    if(ConfigRegister != 0xff){
+    // Buffer voor binaire representatie (16 tekens + terminator)
+    char bufbin[9];
+    for (int i = 0; i < 8; i++) {
+        // Controleer bit (7 - i) en zet '1' of '0'
+        bufbin[i] = (ConfigRegister & (1 << (7 - i))) ? '1' : '0';
+    }
+    bufbin[8] = '\0';  // String-terminator
+
+    // Maak een UART-outputstring met binaire en hex weergave
+    char buf[64];
+   	int len = snprintf(buf, sizeof(buf),
+                       "DS1682: Adres 0x%02X, Read Reg 0b%s (0x%04X)\r\n",
+                       (addr >> 1),       // shift terug naar 7-bit adres
+                       bufbin,            // binaire weergave
+                       (unsigned int)ConfigRegister); // hex weergave
+    HAL_UART_Transmit(&huart2,(uint8_t*)buf,len,HAL_MAX_DELAY);
+    }
+}
+
