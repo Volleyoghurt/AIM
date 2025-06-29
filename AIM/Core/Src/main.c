@@ -39,8 +39,8 @@
 /* USER CODE BEGIN PD */
 
 #define VERSION 01
-#define BUILDDATE 060625
-#define SERIAL 1337
+#define BUILDDATE __DATE__
+#define SERIALNR 1337
 #define BOARD 1
 #define LINK_HIGH_TIMEOUT_MS 500
 
@@ -94,6 +94,14 @@ uint32_t pulseWidth = 0;
 /* Settings:--------------------------------------*/
 float AlarmLimitHighSetPoint 	= 27.0f;
 float AlarmLimitLowSetPoint 	= 26.0f;
+
+static State_t state = STATE_INIT;
+static uint32_t lastTick = 0;
+static uint16_t rawTemp;
+static uint32_t elapsedTime;
+static uint16_t rawCurrent;
+static uint16_t rawVoltage;
+
 
 /*************************************************************************/
 /* RX gedeelte  */
@@ -180,33 +188,23 @@ uint16_t ConvertVoltageToRaw(float voltage, float lsb)
     return (uint16_t)lroundf(voltage / lsb);
 }
 
-
-
-
 // init van de AIM bij eerste opstart MCU
 
 void AIM_INIT(void)
 {
 	//Start bericht
 	UART_MSG();
+
 	TMP117_Init(TMP117_I2C_ADDR, 0x0D80, 27, 24);
 	INA238_Init(INA238_I2C_ADDR, 0x0000, 0xFB68, 0x4096, 0x0001, 0.16384, 0, 0, 0.16384);
-
 
 	uint16_t AlarmLimitLow = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT,0);
 	uint16_t AlarmLimitHigh = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT,0);
 
-		TMP117_Display_Register (TMP117_I2C_ADDR, TMP117_REG_CONFIG);
-		//}
-
-
 	 	 // Send identificatie van het board
-	 	 CanSendIdent(BOARD, 1, VERSION, SERIAL, BUILDDATE);
-
-	 	CheckInitialLinkStatus();
-
+	CanSendIdent(BOARD, 1, VERSION, SERIALNR, BUILDDATE);
+	CheckInitialLinkStatus();
 }
-
 
 void UART_MSG(void)
 {
@@ -271,12 +269,55 @@ int main(void)
 /*— Start up van de AIM							 							 —*/
 /*----------------------------------------------------------------------------*/
 
-  AIM_INIT();
+  state = STATE_INIT;
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  switch (state)
+	          {
+	              case STATE_INIT:
+	                  AIM_INIT();           // jouw init-flow
+	                  lastTick = HAL_GetTick();
+	                  state = STATE_READ;
+	                  break;
+
+	              case STATE_READ:
+	                  // 1) Lees temperature en runtime:
+	                  rawTemp     = TMP117_ReadRegister(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT);
+	                  elapsedTime = DS1682_ReadElapsedTime(DS1682_I2C_ADDR);
+	                  rawVoltage  = INA238_ReadRegister(INA238_I2C_ADDR, INA238_REG_VBUS);
+	                  rawCurrent  = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 0);
+	                  state = STATE_TRANSMIT;
+	                  break;
+
+	              case STATE_TRANSMIT:
+	                  // 2) Verstuur via CAN-BUS:
+	                  CanSendTemperature(BOARD, 1, rawTemp);
+	                  CanSendUptime   (BOARD, 1, elapsedTime, DS1682_ReadEventCounter(DS1682_I2C_ADDR));
+	                  CanSendCurrent  (BOARD, 1, rawCurrent, HAL_GetTick());
+	            	  CanSendVoltage(BOARD, 1,	INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,0),DS1682_ReadElapsedTime(DS1682_I2C_ADDR));
+
+	                  state = STATE_DISPLAY;
+	                  break;
+
+	              case STATE_DISPLAY:
+	            	  //4) geeft waarde weer op display
+	            	  state = STATE_WAIT;
+
+	              case STATE_WAIT:
+	                  // 3) Wacht tot nieuwe meetcyclus: 500ms
+	                  if ((uint32_t)(HAL_GetTick() - lastTick) >= 500) {
+	                      lastTick = HAL_GetTick();
+	                      state = STATE_READ;
+	                  }
+	                  break;
+
+	              case STATE_ERROR:
+	            	  // 5) Handel Error binnen syteem af.
+
+	          }
 
 	  CheckLinkTimeout();  // ← controleer of het signaal al te lang hoog blijft
 
@@ -388,7 +429,7 @@ int main(void)
 /*- Verzenden van data via CAN-Bus									*/
  /*******************************************************************/
 
-	  CanSendIdent(BOARD, 1, VERSION, SERIAL, BUILDDATE);
+	  CanSendIdent(BOARD, 1, VERSION, SERIALNR, BUILDDATE);
 	  CanSendTemperature(BOARD, 1, TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,0));
 	  CanSendUptime(BOARD, 1, DS1682_ReadElapsedTime(DS1682_I2C_ADDR), DS1682_ReadEventCounter(DS1682_I2C_ADDR));
 	  CanSendVoltage(BOARD, 1,	INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,0),DS1682_ReadElapsedTime(DS1682_I2C_ADDR));

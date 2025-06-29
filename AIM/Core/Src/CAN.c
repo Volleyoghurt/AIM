@@ -151,7 +151,7 @@ void CanSendCurrent(uint8_t board, uint8_t index, uint32_t current, uint32_t tim
 		TYPE_STROOM,
 		index
 	);
-	CanSendmessage(id, (uint8_t*)&msg, sizeof(msg),0);
+	CanSendMessage(id, (uint8_t*)&msg, sizeof(msg),0);
 }
 
 // Can-bus zend bericht.

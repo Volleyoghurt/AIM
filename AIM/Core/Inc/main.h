@@ -86,7 +86,14 @@ uint16_t ConvertVoltageToRaw(float voltage, float lsb);
 #define LD3_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
-
+typedef enum {
+    STATE_INIT,
+    STATE_READ,
+    STATE_TRANSMIT,
+	STATE_DISPLAY,
+    STATE_WAIT,
+	STATE_ERROR,
+} State_t;
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

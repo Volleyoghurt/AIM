@@ -226,6 +226,9 @@ void TMP117_Init(uint8_t addr,
         TMP117_WriteRegister(addr,
                              init_config[i].reg,
                              init_config[i].value);
+
+ 		HAL_Delay(10);
+ 		TMP117_Display_Register(addr,init_config[i].reg);  //Laat register zien in UART
     }
 }
 
