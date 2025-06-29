@@ -5,6 +5,8 @@
  *      Author: basge
  */
 
+#include "stm32l4xx_hal.h"
+
 #ifndef INC_INA238_H_
 #define INC_INA238_H_
 
@@ -32,12 +34,15 @@
 
 
 // Bitmask helpers voor DIAG_ALERT register
-#define INA238_ALERT_OVERVOLTAGE  (1 << 2)
-#define INA238_ALERT_UNDERVOLTAGE (1 << 3)
-#define INA238_ALERT_OVERCURRENT  (1 << 4)
-#define INA238_ALERT_TEMPERATURE  (1 << 6)
-#define INA238_ALERT_CONVERSION   (1 << 7)
-#define INA238_ALERT_MEM_ERROR    (1 << 8)
+#define INA238_ALERT_MEM_ERROR       (1 << 0)   // MEMSTAT
+#define INA238_ALERT_CONVERSION_DONE (1 << 1)   // CNVRF
+#define INA238_ALERT_POWER_OVER      (1 << 2)   // POL
+#define INA238_ALERT_BUS_UNDERVOLT   (1 << 3)   // BUSUL
+#define INA238_ALERT_BUS_OVERVOLT    (1 << 4)   // BUSOL
+#define INA238_ALERT_SHUNT_UNDER     (1 << 5)   // SHNTUL
+#define INA238_ALERT_SHUNT_OVER      (1 << 6)   // SHNTOL
+#define INA238_ALERT_TEMP_OVER       (1 << 7)   // TMPOL
+#define INA238_ALERT_MATH_OVERFLOW   (1 << 9)   // MATHOF (bit 8 is reserved)
 
 
 typedef struct {

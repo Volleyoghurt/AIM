@@ -5,6 +5,8 @@
  *      Author: basge
  */
 
+#include "stm32l4xx_hal.h"
+
 #ifndef INC_DS1682_H_
 #define INC_DS1682_H_
 

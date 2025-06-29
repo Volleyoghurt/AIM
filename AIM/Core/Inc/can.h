@@ -4,6 +4,12 @@
  *  Created on: Jun 10, 2025
  *      Author: basge
  */
+#include "stm32l4xx_hal.h"
+
+extern CAN_HandleTypeDef hcan1;
+
+extern uint32_t TxDataCan[8];
+extern uint8_t  RxDataCan[8];
 
 #ifndef INC_CAN_H_
 #define INC_CAN_H_
