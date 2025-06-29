@@ -13,7 +13,6 @@ extern I2C_HandleTypeDef hi2c3;
 extern UART_HandleTypeDef huart2;
 
 
-
 /*----------------------------------------------------------------------------*/
 /*— I2C INA238 sensor communicatie functies
 /*----------------------------------------------------------------------------*/
@@ -193,7 +192,9 @@ void INA238_Init(uint8_t addr,
         INA238_WriteRegister(addr,                // Doelapparaat (slave-adres)
                              init_config[i].reg,  // Registeradres
                              init_config[i].value // Te schrijven waarde
-        );
+							 );
+ 		HAL_Delay(10);
+ 		INA238_Display_Register(addr,init_config[i].reg);  //Laat register zien in UART
     }
 }
 

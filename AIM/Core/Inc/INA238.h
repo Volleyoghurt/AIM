@@ -71,7 +71,7 @@ uint16_t INA238_ReadVoltage(uint8_t addr, uint8_t reg,uint8_t debug);
 uint16_t INA238_ReadCurrent(uint8_t addr, uint8_t reg, uint8_t debug);
 uint16_t INA238_ReadTemp(uint8_t addr, uint8_t debug);
 uint32_t INA238_ReadPower(uint8_t addr, uint8_t reg, uint8_t debug);
-
+uint16_t ConvertVoltageToRaw(float voltage, float lsb);
 
 #endif // INA238_H
 

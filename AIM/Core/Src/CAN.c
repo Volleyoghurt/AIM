@@ -10,13 +10,16 @@
 #include "stm32l4xx_hal.h"
 
 extern UART_HandleTypeDef huart2;
-//CAN_HandleTypeDef hcan1;
 
 CAN_TxHeaderTypeDef TxHeaderCan;
 CAN_RxHeaderTypeDef RxHeaderCan;
 
 uint32_t TxDataCan[8];
 uint8_t RxDataCan[8];
+
+CAN_Msg_t canQueue[CAN_QUEUE_SIZE];
+uint8_t canHead = 0;
+uint8_t canTail = 0;
 
 /*----------------------------------------------------------------------------*/
 /*— Can-bus zend-functies  —*/
@@ -191,3 +194,97 @@ void CanSendMessage(uint32_t extId, const uint8_t payload[8], uint8_t length,uin
         Error_Handler();
     }
 }
+
+
+/*******************************/
+/*interupt handler  */
+/***************************** */
+
+uint8_t EnqueueCAN(const CAN_RxHeaderTypeDef *hdr, const uint8_t *data) {
+    uint8_t next = (canHead + 1) % CAN_QUEUE_SIZE;
+    if (next == canTail) {
+        // buffer vol, laat ISR snel terugkeren
+        return 0;
+    }
+    canQueue[canHead].header = *hdr;
+    memcpy(canQueue[canHead].data, data, 8);
+    canHead = next;
+    return 1;
+}
+
+// Haal een bericht uit de ringbuffer; retourneert 1 als gelukt, 0 als leeg
+uint8_t DequeueCAN(CAN_Msg_t *msg) {
+    if (canTail == canHead) {
+        // buffer leeg
+        return 0;
+    }
+    *msg = canQueue[canTail];
+    canTail = (canTail + 1) % CAN_QUEUE_SIZE;
+    return 1;
+}
+
+void ProcessCANMessages(void) {
+    CAN_Msg_t msg;
+    while (DequeueCAN(&msg)) {
+        uint8_t type = GET_TYPE(msg.header.ExtId);
+        char buf[128];
+        switch (type) {
+            case 1: {  // Spanning
+                VoltageMsg_t *m = (VoltageMsg_t*)msg.data;
+                float voltage_v = m->value * 3.125e-3f;
+                int len = snprintf(buf, sizeof(buf),
+                    "Ontvangen: Spanning (ID=0x%08lX, idx=%u): %.2f V.\r\n",
+                    (unsigned long)msg.header.ExtId,
+                    GET_INDEX(msg.header.ExtId),
+                    voltage_v);
+                HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+                break;
+            }
+            case 4: {  // Temperatuur
+                TempMsg_t *m = (TempMsg_t*)msg.data;
+                int16_t sv = (int16_t)m->value;
+                float temp_c = sv * 0.0078125f;
+                int len = snprintf(buf, sizeof(buf),
+                    "Ontvangen: Temperatuur (ID=0x%08lX, idx=%u): %.2f °C.\r\n",
+                    (unsigned long)msg.header.ExtId,
+                    GET_INDEX(msg.header.ExtId),
+                    temp_c);
+                HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+                break;
+            }
+            case 6: {  // Runtime
+                RuntimeMsg_t *m = (RuntimeMsg_t*)msg.data;
+                uint32_t s = m->runtime;
+                uint32_t h = s / 3600, rem = s % 3600;
+                uint32_t min = rem / 60;
+                int len = snprintf(buf, sizeof(buf),
+                    "Ontvangen: Uptime (ID=0x%08lX, idx=%u): %lu uur %02lu min.\r\n",
+                    (unsigned long)msg.header.ExtId,
+                    GET_INDEX(msg.header.ExtId),
+                    h, min);
+                HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+                break;
+            }
+            case 9: {  // Identificatie
+                IdentMsg_t *m = (IdentMsg_t*)msg.data;
+                int len = snprintf(buf, sizeof(buf),
+                    "Ontvangen: Ident (ID=0x%08lX, idx=%u): verie=%u, serial=%u, board=%u.\r\n",
+                    (unsigned long)msg.header.ExtId,
+                    GET_INDEX(msg.header.ExtId),
+                    m->version_id, m->serial_id, m->build_date);
+                HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+                break;
+            }
+            default:
+                // onherkend type
+                break;
+        }
+    }
+}
+
+
+
+
+
+
+

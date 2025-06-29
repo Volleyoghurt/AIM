@@ -108,12 +108,13 @@ typedef struct {
     uint8_t             data[8];
 } CAN_Msg_t;
 
-static CAN_Msg_t canQueue[CAN_QUEUE_SIZE];
-static volatile uint8_t canHead = 0, canTail = 0;
+extern CAN_Msg_t canQueue[CAN_QUEUE_SIZE];
+extern uint8_t canHead;
+extern uint8_t canTail;
 
 // Prototype
-static uint8_t EnqueueCAN(const CAN_RxHeaderTypeDef *hdr, const uint8_t *data);
-static uint8_t DequeueCAN(CAN_Msg_t *msg);
+uint8_t EnqueueCAN(const CAN_RxHeaderTypeDef *hdr, const uint8_t *data);
+uint8_t DequeueCAN(CAN_Msg_t *msg);
 
 void CanSendMessage(uint32_t extId, const uint8_t payload[8], uint8_t length,uint8_t debug);
 void CanSendTemperature(uint8_t board, uint8_t index, uint16_t temperature);
