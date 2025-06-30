@@ -194,14 +194,19 @@ HAL_StatusTypeDef TMP117_WriteTemperatureC(uint8_t addr, uint8_t reg, float temp
  * @param  config        Waarde voor het CONFIG-register (bijv. continuous mode, averaging)
  * @param  temp_high     Bovenste temperatuurgrens (°C)
  * @param  temp_low      Onderste temperatuurgrens (°C)
- * @param  temp_crit     Kritieke temperatuurgrens (°C)
  */
-void TMP117_Init(uint8_t addr,
-                 uint16_t config,
-                 float temp_high,
-                 float temp_low)
+void TMP117_Init(uint8_t addr, uint16_t config, float temp_high, float temp_low)
 {
-    // TMP117 gebruikt 0.0078125°C/LSB → 1/128
+
+
+	TMP117_WriteTemperatureC(addr,TMP117_REG_T_HIGH_LIMIT, temp_high);
+	HAL_Delay(25);
+	TMP117_WriteTemperatureC(addr, TMP117_REG_T_LOW_LIMIT , temp_low);
+	HAL_Delay(25);
+//	TMP117_WriteRegister(addr,TMP117_REG_CONFIG ,config);
+	HAL_Delay(25);
+	/*
+	// TMP117 gebruikt 0.0078125°C/LSB → 1/128
     const float lsb = 0.0078125f;
 
     // Zet °C om naar raw registerwaarden (2-complement formaat)
@@ -227,9 +232,12 @@ void TMP117_Init(uint8_t addr,
                              init_config[i].reg,
                              init_config[i].value);
 
- 		HAL_Delay(10);
+ 		HAL_Delay(50);
  		TMP117_Display_Register(addr,init_config[i].reg);  //Laat register zien in UART
+
+
     }
+      */
 }
 
 /**
@@ -275,12 +283,12 @@ void TMP117_Temp_Alert(uint16_t addr){
 	int16_t signed_val = (int16_t)rawtemp;
 	float temp = signed_val * 0.0078125f;
 
-	uint16_t raw_lim_high = TMP117_ReadRegister(addr, TMP117_REG_TEMP_RESULT);
+	uint16_t raw_lim_high = TMP117_ReadRegister(addr, TMP117_REG_T_HIGH_LIMIT);
 
 	int16_t signed_raw_lim_high = (int16_t)raw_lim_high;
 	float lim_high = signed_val * 0.0078125f;
 
-	uint16_t raw_lim_low = TMP117_ReadRegister(addr, TMP117_REG_TEMP_RESULT);
+	uint16_t raw_lim_low = TMP117_ReadRegister(addr, TMP117_REG_T_LOW_LIMIT);
 
 	int16_t signed_raw_lim_low = (int16_t)raw_lim_low;
 	float lim_low = signed_val * 0.0078125f;

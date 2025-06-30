@@ -14,10 +14,10 @@ extern uint32_t linkHighTimestamp;
 extern uint8_t  linkErrorFlag;
 extern uint32_t lastLinkPulseTime;
 
-void CheckInitialLinkStatus(void);
-void OnLinkError(void);
-void OnLinkRecovered(void);
-void CheckLinkTimeout(void);
+void Link_ETH_CheckInitialLinkStatus(void);
+void Link_ETH_OnLinkError(void);
+void Link_ETH_OnLinkRecovered(void);
+void Link_ETH_CheckLinkTimeout(void);
 
 
 

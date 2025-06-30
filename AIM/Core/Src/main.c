@@ -86,14 +86,15 @@ char buf[64];
 uint8_t TempReady 		= 0;
 uint8_t TmpAlertFlag 	= 0;
 uint8_t InaAlertFlag 	= 0;
+static uint8_t printed = 0;
 char TempBuf[64];
 
 uint32_t pulseStart = 0;
 uint32_t pulseWidth = 0;
 
 /* Settings:--------------------------------------*/
-float AlarmLimitHighSetPoint 	= 27.0f;
-float AlarmLimitLowSetPoint 	= 26.0f;
+float AlarmLimitHighSetPoint 	= 100.0f;
+float AlarmLimitLowSetPoint 	= 3.0f;
 
 static State_t state = STATE_INIT;
 static uint32_t lastTick = 0;
@@ -151,7 +152,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	            if (linkErrorFlag)
 	            {
 	                linkErrorFlag = 0;
-	                OnLinkRecovered();
+	                Link_ETH_OnLinkRecovered();
 	            }
 	        }
         // LED-blink bij ontvangen puls
@@ -195,15 +196,16 @@ void AIM_INIT(void)
 	//Start bericht
 	UART_MSG();
 
-	TMP117_Init(TMP117_I2C_ADDR, 0x0D80, 27, 24);
+	TMP117_Init(TMP117_I2C_ADDR, 0x0D80,AlarmLimitHighSetPoint, AlarmLimitLowSetPoint);
+	HAL_Delay(50);
 	INA238_Init(INA238_I2C_ADDR, 0x0000, 0xFB68, 0x4096, 0x0001, 0.16384, 0, 0, 0.16384);
-
-	uint16_t AlarmLimitLow = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT,0);
-	uint16_t AlarmLimitHigh = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT,0);
+	HAL_Delay(50);
+	uint16_t AlarmLimitLow = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT,1);
+	uint16_t AlarmLimitHigh = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT,1);
 
 	 	 // Send identificatie van het board
 	CanSendIdent(BOARD, 1, VERSION, SERIALNR, BUILDDATE);
-	CheckInitialLinkStatus();
+	Link_ETH_CheckInitialLinkStatus();
 }
 
 void UART_MSG(void)
@@ -279,7 +281,6 @@ int main(void)
 	          {
 	              case STATE_INIT:
 	                  AIM_INIT();           // jouw init-flow
-	                  lastTick = HAL_GetTick();
 	                  state = STATE_READ;
 	                  break;
 
@@ -298,28 +299,35 @@ int main(void)
 	                  CanSendUptime   (BOARD, 1, elapsedTime, DS1682_ReadEventCounter(DS1682_I2C_ADDR));
 	                  CanSendCurrent  (BOARD, 1, rawCurrent, HAL_GetTick());
 	            	  CanSendVoltage(BOARD, 1,	INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,0),DS1682_ReadElapsedTime(DS1682_I2C_ADDR));
-
-	                  state = STATE_DISPLAY;
+	            	  state = STATE_DISPLAY;
 	                  break;
 
 	              case STATE_DISPLAY:
 	            	  //4) geeft waarde weer op display
+	            	  DS1682_SecondsToHM_Display(DS1682_I2C_ADDR,1);
+	            	  uint16_t Vbus1 = INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,1);
+	            	  uint16_t Current = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 1);
+	            	  uint16_t INATEMP = INA238_ReadTemp(INA238_I2C_ADDR, 1);
+	            	  uint16_t TMPTEMP = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,1);
+	            	  TMP117_Temp_Alert(TMP117_I2C_ADDR);
+
+	            	  lastTick = HAL_GetTick();  // tijdstip van ingang in wachtperiode
 	            	  state = STATE_WAIT;
+	            	  break;
 
 	              case STATE_WAIT:
-	                  // 3) Wacht tot nieuwe meetcyclus: 500ms
-	                  if ((uint32_t)(HAL_GetTick() - lastTick) >= 500) {
-	                      lastTick = HAL_GetTick();
-	                      state = STATE_READ;
-	                  }
-	                  break;
+
+	            	  if ((HAL_GetTick() - lastTick) >= 1000) {
+	            		   state = STATE_READ;
+	            	  }
+	            	  break;
 
 	              case STATE_ERROR:
 	            	  // 5) Handel Error binnen syteem af.
-
+	            	  break;
 	          }
 
-	  CheckLinkTimeout();  // ← controleer of het signaal al te lang hoog blijft
+		Link_ETH_CheckLinkTimeout();  // ← controleer of het signaal al te lang hoog blijft
 
 /*----------------------------------------------------------------------------*/
  /*— Interupts Handeling  —*/
@@ -418,23 +426,8 @@ int main(void)
 	 			InaAlertFlag = 0;
 */
 
-/********************************************************************/
-/*- Verzenden van data via CAN-Bus									*/
- /*******************************************************************/
 
-	  CanSendIdent(BOARD, 1, VERSION, SERIALNR, BUILDDATE);
-	  CanSendTemperature(BOARD, 1, TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,0));
-	  CanSendUptime(BOARD, 1, DS1682_ReadElapsedTime(DS1682_I2C_ADDR), DS1682_ReadEventCounter(DS1682_I2C_ADDR));
-	  CanSendVoltage(BOARD, 1,	INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,0),DS1682_ReadElapsedTime(DS1682_I2C_ADDR));
 
-/********************************************************************/
-/* UART testing	  													*/
-/*******************************************************************/
-	  DS1682_SecondsToHM_Display(DS1682_I2C_ADDR,0);
-	  uint16_t Vbus1 = INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,1);
-	  uint16_t Current = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 1);
-	  uint16_t INATEMP = INA238_ReadTemp(INA238_I2C_ADDR, 1);
-	  TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,1);
   }
 
   /*******************************************************************************************************************************/
@@ -696,12 +689,12 @@ static void MX_USART1_UART_Init(void)
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_RX;
+  huart1.Init.Mode = UART_MODE_TX_RX;
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart1.Init.OverSampling = UART_OVERSAMPLING_16;
   huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_HalfDuplex_Init(&huart1) != HAL_OK)
+  if (HAL_MultiProcessor_Init(&huart1, 0, UART_WAKEUPMETHOD_IDLELINE) != HAL_OK)
   {
     Error_Handler();
   }

@@ -20,7 +20,7 @@ uint32_t lastLinkPulseTime = 0;
 /* Link detectie functies */
 /***********************************************************/
 
-void CheckInitialLinkStatus(void) {
+void Link_ETH_CheckInitialLinkStatus(void) {
     HAL_Delay(10);
 	if (HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin) == GPIO_PIN_RESET){
         linkHighTimestamp = HAL_GetTick();
@@ -28,11 +28,10 @@ void CheckInitialLinkStatus(void) {
     }
 }
 
-
 /**
  * @brief  Wordt éénmalig aangeroepen bij detectie van een langdurige hoge puls.
  */
-void OnLinkError(void)
+void Link_ETH_OnLinkError(void)
 {
     // Bijvoorbeeld: stuur foutmelding via UART en zet error-LED
 	char buf[64];
@@ -47,7 +46,7 @@ void OnLinkError(void)
 /**
  * @brief  Wordt éénmalig aangeroepen zodra de link weer normaal functioneert.
  */
-void OnLinkRecovered(void)
+void Link_ETH_OnLinkRecovered(void)
 {
  	char buf[64];
 	int len = snprintf(buf, sizeof(buf),
@@ -58,7 +57,7 @@ void OnLinkRecovered(void)
 }
 
 
-void CheckLinkTimeout(void)
+void Link_ETH_CheckLinkTimeout(void)
 {
     if (HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin) == GPIO_PIN_SET)
     {
@@ -66,7 +65,7 @@ void CheckLinkTimeout(void)
         if (elapsed >= 500 && !linkErrorFlag)
         {
             linkErrorFlag = 1;
-            OnLinkError();  // Foutmelding
+            Link_ETH_OnLinkError();  // Foutmelding
         }
     }
 }

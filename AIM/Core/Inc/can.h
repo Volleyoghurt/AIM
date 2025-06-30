@@ -30,13 +30,14 @@ extern uint8_t  RxDataCan[8];
 
 /* Vooraf gedefinieerde prioriteiten */
 #define PRIO_STATUS    	1
-#define PRIO_IDENT     	2
-#define PRIO_LINK      	3
-#define PRIO_SPANNING  	4
-#define PRIO_STROOM		5
-#define PRIO_TEMP		6
-#define PRIO_RUNTIME	7
-#define PRIO_LUCHTV		8
+#define PRIO_MCUMSG		2
+#define PRIO_IDENT     	3
+#define PRIO_LINK      	4
+#define PRIO_SPANNING  	5
+#define PRIO_STROOM		6
+#define PRIO_TEMP		7
+#define PRIO_RUNTIME	8
+#define PRIO_LUCHTV		9
 
 /*vooraf gedefinieerde taken */
 #define TYPE_SPANNING 1
@@ -46,11 +47,14 @@ extern uint8_t  RxDataCan[8];
 #define TYPE_LUCHTV 5
 #define TYPE_RUNTIME 6
 #define TYPE_STATUS 8
-#define TYPE_IDENT 9
+#define TYPE_MCUMSG 9
+#define TYPE_IDENT 10
+
 
 /*interupt handeling */
 
 #define CAN_QUEUE_SIZE 16
+
 
 // zorg dat je telt vanuit 0 ipv 1
 /*----------------------------------------------------------------------------*/
@@ -99,9 +103,11 @@ typedef struct __attribute__((packed)) { // __attribute__((packed)) zorgt ervoor
 	uint8_t reset_count;			//byte 5-7: aantal keer reset
 } RuntimeMsg_t;
 
-
-
-#define CAN_QUEUE_SIZE 16
+typedef struct __attribute__((packed)){// __attribute__((packed)) zorgt ervoor dat er geen bitpadding ontstaat
+	uint8_t MCU_id;					//byte 0 MCU_id
+	uint8_t type;					//byte 1: Message type
+	uint8_t length;					//byte 2: Message lenght
+} McuMsg_t;
 
 typedef struct {
     CAN_RxHeaderTypeDef header;
