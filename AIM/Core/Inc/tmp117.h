@@ -23,5 +23,6 @@ HAL_StatusTypeDef TMP117_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value
 uint16_t TMP117_ReadTemperatureC(uint8_t addr, uint8_t reg,uint8_t debug);
 void TMP_SetAlarmTemp(uint8_t addr, uint8_t reg, float temp);
 void TMP117_Display_Register(uint8_t addr, uint16_t Register);
+void TMP117_Temp_Alert(uint16_t addr);
 
 #endif // TMP117_H

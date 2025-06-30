@@ -327,17 +327,12 @@ int main(void)
 //Handeling Temp alarm via interrupt PA8
 
 	 ProcessCANMessages();
-	 if (TmpAlertFlag) { 				// lees temperatuur en stuur bericht
-		 uint16_t rawtemp = TMP117_ReadRegister(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT);
-		 int16_t signed_val = (int16_t)rawtemp;
-
-		 float temp = signed_val * 0.0078125f;
-		 char buf[80];
-		 int len = snprintf(buf, sizeof(buf),
-				  "Alarm! T=%.2f °C  limieten: low=%.2f, high=%.2f\r\n",
-				  temp, AlarmLimitLowSetPoint, AlarmLimitHighSetPoint);
-	     HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
-	     TmpAlertFlag = 0;
+	 if (TmpAlertFlag) {
+		 if(TMP117_ReadRegister(TMP117_I2C_ADDR, TMP117_REG_CONFIG) & ((1 << 15) | (1 << 14))) // controleer of een van de twee alerts hoog zijn.
+		 {
+			 TMP117_Temp_Alert(TMP117_I2C_ADDR);
+		 }
+		 TmpAlertFlag = 0;
 	  }
 
 	  if(InaAlertFlag){

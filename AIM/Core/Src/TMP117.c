@@ -269,3 +269,28 @@ void TMP117_Display_Register(uint8_t addr, uint16_t Register)
     }
 }
 
+void TMP117_Temp_Alert(uint16_t addr){
+	uint16_t rawtemp = TMP117_ReadRegister(addr, TMP117_REG_TEMP_RESULT);
+
+	int16_t signed_val = (int16_t)rawtemp;
+	float temp = signed_val * 0.0078125f;
+
+	uint16_t raw_lim_high = TMP117_ReadRegister(addr, TMP117_REG_TEMP_RESULT);
+
+	int16_t signed_raw_lim_high = (int16_t)raw_lim_high;
+	float lim_high = signed_val * 0.0078125f;
+
+	uint16_t raw_lim_low = TMP117_ReadRegister(addr, TMP117_REG_TEMP_RESULT);
+
+	int16_t signed_raw_lim_low = (int16_t)raw_lim_low;
+	float lim_low = signed_val * 0.0078125f;
+
+	char buf[80];
+	int len = snprintf(buf, sizeof(buf),
+				  "Alarm! T=%.2f °C  limieten: low=%.2f, high=%.2f\r\n",
+				  temp, lim_high, lim_low);
+	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+}
+
+
+
