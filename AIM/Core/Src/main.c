@@ -82,6 +82,7 @@ void UART_MSG(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 uint8_t RX_Buffer_I2C[1]; //I2C RX variable
+uint8_t rx_buff_UART[10];
 char buf[64];
 uint8_t TempReady 		= 0;
 uint8_t TmpAlertFlag 	= 0;
@@ -93,8 +94,8 @@ uint32_t pulseStart = 0;
 uint32_t pulseWidth = 0;
 
 /* Settings:--------------------------------------*/
-float AlarmLimitHighSetPoint 	= 100.0f;
-float AlarmLimitLowSetPoint 	= 3.0f;
+static float AlarmLimitHighSetPoint 	= 25.0;    //nog fixen
+static float AlarmLimitLowSetPoint 	= 24.0;
 
 static State_t state = STATE_INIT;
 static uint32_t lastTick = 0;
@@ -139,9 +140,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	if (GPIO_Pin == LinkStatus1_Pin)
 	    {
-	        GPIO_PinState state = HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin);
+	        GPIO_PinState state_int = HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin);
 
-	        if (state == GPIO_PIN_SET)
+	        if (state_int == GPIO_PIN_SET)
 	        {
 	            // Start van hoog-signaal detecteren
 	            linkHighTimestamp = HAL_GetTick();
@@ -160,17 +161,27 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
     else if (GPIO_Pin == TMPALERT_Pin)
     {
-        TmpAlertFlag = 1;
+        state = STATE_ERROR;
+    	TmpAlertFlag = 1;
     }
     else if (GPIO_Pin == VCALERT_Pin)
     {
-        InaAlertFlag = 1;
+        state = STATE_ERROR;
+    	InaAlertFlag = 1;
     }
     else
     {
         __NOP();
     }
 }
+
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  //HAL_UART_Receive_IT(&huart1, rx_buff_UART, 10); //You need to toggle a breakpoint on this line!
+}
+
+
 
 /**
  * @brief Converteert een spanningswaarde naar een 16-bit registerwaarde op basis van opgegeven LSB.
@@ -196,14 +207,16 @@ void AIM_INIT(void)
 	//Start bericht
 	UART_MSG();
 
-	TMP117_Init(TMP117_I2C_ADDR, 0x0D80,AlarmLimitHighSetPoint, AlarmLimitLowSetPoint);
-	HAL_Delay(50);
-	INA238_Init(INA238_I2C_ADDR, 0x0000, 0xFB68, 0x4096, 0x0001, 0.16384, 0, 0, 0.16384);
-	HAL_Delay(50);
-	uint16_t AlarmLimitLow = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT,1);
-	uint16_t AlarmLimitHigh = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT,1);
+	TMP117_Init(TMP117_I2C_ADDR,0b0000000000110000,25.0, 24.0);
+	//HAL_Delay(50);
+	//INA238_Init(INA238_I2C_ADDR, 0x0000, 0xFB68, 0x4096, 0x0001, 0.16384, 0, 0, 0.16384);
+	//HAL_Delay(50);
 
-	 	 // Send identificatie van het board
+	TMP117_Display_Register(TMP117_I2C_ADDR, TMP117_REG_CONFIG);
+	TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT, 1);
+	TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT, 1);
+
+	// Send identificatie van het board
 	CanSendIdent(BOARD, 1, VERSION, SERIALNR, BUILDDATE);
 	Link_ETH_CheckInitialLinkStatus();
 }
@@ -262,6 +275,9 @@ int main(void)
 /*----------------------------------------------------------------------------*/
 
 /****************************************************************************************************************************************/
+  HAL_UART_Receive_IT(&huart1, rx_buff_UART, 10);
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -287,6 +303,7 @@ int main(void)
 	              case STATE_READ:
 	                  // 1) Lees temperature en runtime:
 	                  rawTemp     = TMP117_ReadRegister(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT);
+	                  TMP117_Display_Register(TMP117_I2C_ADDR,TMP117_REG_CONFIG);
 	                  elapsedTime = DS1682_ReadElapsedTime(DS1682_I2C_ADDR);
 	                  rawVoltage  = INA238_ReadRegister(INA238_I2C_ADDR, INA238_REG_VBUS);
 	                  rawCurrent  = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 0);
@@ -309,7 +326,6 @@ int main(void)
 	            	  uint16_t Current = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 1);
 	            	  uint16_t INATEMP = INA238_ReadTemp(INA238_I2C_ADDR, 1);
 	            	  uint16_t TMPTEMP = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,1);
-	            	  TMP117_Temp_Alert(TMP117_I2C_ADDR);
 
 	            	  lastTick = HAL_GetTick();  // tijdstip van ingang in wachtperiode
 	            	  state = STATE_WAIT;
@@ -323,6 +339,19 @@ int main(void)
 	            	  break;
 
 	              case STATE_ERROR:
+	            	  if (TmpAlertFlag) {
+	            		  if(TMP117_ReadRegister(TMP117_I2C_ADDR, TMP117_REG_CONFIG) & ((1 << 15) | (1 << 14))) // controleer of een van de twee alerts hoog zijn.
+	            		  {
+	            				 TMP117_Temp_Alert(TMP117_I2C_ADDR);
+	            		  }
+	            			 TmpAlertFlag = 0;
+	            		  }
+
+	            		  if(InaAlertFlag){
+
+	            		  }
+
+	            		  state = STATE_READ;
 	            	  // 5) Handel Error binnen syteem af.
 	            	  break;
 	          }
@@ -335,16 +364,7 @@ int main(void)
 //Handeling Temp alarm via interrupt PA8
 
 	 ProcessCANMessages();
-	 if (TmpAlertFlag) {
-		 if(TMP117_ReadRegister(TMP117_I2C_ADDR, TMP117_REG_CONFIG) & ((1 << 15) | (1 << 14))) // controleer of een van de twee alerts hoog zijn.
-		 {
-			 TMP117_Temp_Alert(TMP117_I2C_ADDR);
-		 }
-		 TmpAlertFlag = 0;
-	  }
 
-	  if(InaAlertFlag){
-	  }
 /*
 		    uint16_t status = INA238_ReadRegister(INA238_I2C_ADDR, INA238_REG_DIAG_ALERT);
 
@@ -694,7 +714,7 @@ static void MX_USART1_UART_Init(void)
   huart1.Init.OverSampling = UART_OVERSAMPLING_16;
   huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_MultiProcessor_Init(&huart1, 0, UART_WAKEUPMETHOD_IDLELINE) != HAL_OK)
+  if (HAL_UART_Init(&huart1) != HAL_OK)
   {
     Error_Handler();
   }

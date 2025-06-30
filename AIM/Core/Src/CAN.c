@@ -154,6 +154,22 @@ void CanSendCurrent(uint8_t board, uint8_t index, uint32_t current, uint32_t tim
 	CanSendMessage(id, (uint8_t*)&msg, sizeof(msg),0);
 }
 
+void CanLink(uint8_t board, uint8_t index, uint32_t status, uint32_t type, uint32_t time){
+	LinkMsg_t msg;
+	msg.status = status;
+	msg.type = type;
+	msg.timestamp = time;
+
+	uint32_t id = CAN_EXT_ID(
+		PRIO_LINK,
+		board,
+		TYPE_LINK,
+		index
+	);
+	CanSendMessage(id, (uint8_t*)&msg, sizeof(msg),0);
+}
+
+
 // Can-bus zend bericht.
 /**
  * Verstuur een CAN-bericht via één van de TX-mailboxen van bxCAN

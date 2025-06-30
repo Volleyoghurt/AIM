@@ -195,16 +195,16 @@ HAL_StatusTypeDef TMP117_WriteTemperatureC(uint8_t addr, uint8_t reg, float temp
  * @param  temp_high     Bovenste temperatuurgrens (°C)
  * @param  temp_low      Onderste temperatuurgrens (°C)
  */
-void TMP117_Init(uint8_t addr, uint16_t config, float temp_high, float temp_low)
+void TMP117_Init(uint8_t addr, uint8_t config, float temp_high, float temp_low)
 {
 
+	TMP117_WriteRegister(addr,TMP117_REG_CONFIG,config);
+	HAL_Delay(25);
+	TMP117_WriteTemperatureC(addr,TMP117_REG_T_HIGH_LIMIT, 25.0);
+	HAL_Delay(25);
+	TMP117_WriteTemperatureC(addr, TMP117_REG_T_LOW_LIMIT , 24.0);
+	HAL_Delay(25);
 
-	TMP117_WriteTemperatureC(addr,TMP117_REG_T_HIGH_LIMIT, temp_high);
-	HAL_Delay(25);
-	TMP117_WriteTemperatureC(addr, TMP117_REG_T_LOW_LIMIT , temp_low);
-	HAL_Delay(25);
-//	TMP117_WriteRegister(addr,TMP117_REG_CONFIG ,config);
-	HAL_Delay(25);
 	/*
 	// TMP117 gebruikt 0.0078125°C/LSB → 1/128
     const float lsb = 0.0078125f;
@@ -264,16 +264,14 @@ void TMP117_Display_Register(uint8_t addr, uint16_t Register)
     bufbin[16] = '\0';  // String-terminator
 
     // Maak een UART-outputstring met binaire en hex weergave
-    char buf[64];
+    char buf[128];
    	int len = snprintf(buf, sizeof(buf),
-                       "TMP117: Adres 0x%02X, Read Reg 0b%s (0x%04X)\r\n",
+                       "TMP117:  Adres 0x%02X, Read Reg op: 0x%04X = 0b%s (0x%04X) \r\n",
                        (addr >> 1),       // shift terug naar 7-bit adres
-                       bufbin,            // binaire weergave
+					   (unsigned int)Register,
+					   bufbin,            // binaire weergave
                        (unsigned int)ConfigRegister); // hex weergave
-    	HAL_UART_Transmit(&huart2,
-                      (uint8_t*)buf,
-                      len,
-                      HAL_MAX_DELAY);
+    	HAL_UART_Transmit(&huart2,(uint8_t*)buf,len, HAL_MAX_DELAY);
     }
 }
 
@@ -286,17 +284,17 @@ void TMP117_Temp_Alert(uint16_t addr){
 	uint16_t raw_lim_high = TMP117_ReadRegister(addr, TMP117_REG_T_HIGH_LIMIT);
 
 	int16_t signed_raw_lim_high = (int16_t)raw_lim_high;
-	float lim_high = signed_val * 0.0078125f;
+	float lim_high = signed_raw_lim_high * 0.0078125f;
 
 	uint16_t raw_lim_low = TMP117_ReadRegister(addr, TMP117_REG_T_LOW_LIMIT);
 
 	int16_t signed_raw_lim_low = (int16_t)raw_lim_low;
-	float lim_low = signed_val * 0.0078125f;
+	float lim_low = signed_raw_lim_low * 0.0078125f;
 
 	char buf[80];
 	int len = snprintf(buf, sizeof(buf),
 				  "Alarm! T=%.2f °C  limieten: low=%.2f, high=%.2f\r\n",
-				  temp, lim_high, lim_low);
+				  temp, lim_low, lim_high);
 	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
 }
 
