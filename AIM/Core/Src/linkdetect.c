@@ -104,14 +104,14 @@ uint8_t CheckLinkTimeout(uint32_t time_link0, uint32_t time_link1, uint32_t time
 		}
 	}
  	if (HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin) == GPIO_PIN_SET){
- 		uint32_t elapsed_link1 = HAL_GetTick() - Link0HighTimestamp;
+ 		uint32_t elapsed_link1 = HAL_GetTick() - Link1HighTimestamp;
  		if (elapsed_link1 >= time_link1 && !Link1ErrorFlag){
  			  Link1ErrorFlag = 1;
  			  error = 1;
  		}
  	}
  	if (HAL_GPIO_ReadPin(LinkStatus2_GPIO_Port, LinkStatus2_Pin) == GPIO_PIN_SET){
- 		uint32_t elapsed_link2 = HAL_GetTick() - Link0HighTimestamp;
+ 		uint32_t elapsed_link2 = HAL_GetTick() - Link2HighTimestamp;
  		if (elapsed_link2 >= time_link2 && !Link2ErrorFlag){
  			 Link2ErrorFlag = 1;
  			 error = 1;

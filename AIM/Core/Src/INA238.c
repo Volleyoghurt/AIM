@@ -15,7 +15,7 @@ extern UART_HandleTypeDef huart2;
 
 /*----------------------------------------------------------------------------*/
 /*— I2C INA238 sensor communicatie functies
-/*----------------------------------------------------------------------------*/
+----------------------------------------------------------------------------*/
 
 /**
  * @brief  Leest een 16-bit register van de INA238 via I²C.
@@ -166,8 +166,6 @@ void INA238_Init(uint8_t addr,
     uint16_t suvl_raw = ConvertVoltageToRaw(suvl_threshold, lsb_voltage);
     uint16_t bovl_raw = ConvertVoltageToRaw(bovl_threshold, lsb_voltage);
     uint16_t buvl_raw = ConvertVoltageToRaw(buvl_threshold, lsb_voltage);
-
-    char buf[64];
 
     // Stap 1: Set ADC_CONFIG (optioneel, maar expliciet is veilig)
     INA238_WriteRegister(addr, INA238_REG_ADC_CONFIG, 0xFB68);

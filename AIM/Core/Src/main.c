@@ -45,7 +45,7 @@
 #define BOARD 1
 #define LINK0_TIMEOUT_MS 500
 #define LINK1_TIMEOUT_MS 500
-#define LINK2_TIMEOUT_MS 500
+#define LINK2_TIMEOUT_MS 3000
 
 /* USER CODE END PD */
 
@@ -233,8 +233,6 @@ uint16_t ConvertVoltageToRaw(float voltage, float lsb)
 void AIM_INIT(void)
 {
 	//Start bericht
-	UART_MSG();
-
 	TMP117_Init(TMP117_I2C_ADDR,0x0630 ,25.0f, 24.0f);
 	HAL_Delay(50);
 	INA238_Init(INA238_I2C_ADDR, 0x4096,INA238_ALERT_ALL_WITH_ENABLE, 0.16384, 0.001, 3.4, 0.16384);
@@ -249,14 +247,12 @@ void AIM_INIT(void)
 	Link_CheckInitialLinkStatus();
 
 	CanSendIdent(BOARD, 1, VERSION, SERIALNR, BUILDDATE);
-}
 
-void UART_MSG(void)
-{
 	char buf[80];
 	int len = snprintf(buf, sizeof(buf),"*******************************AIM gestart!*******************************\n\r");
   	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
 }
+
 
 /* USER CODE END 0 */
 
@@ -635,7 +631,7 @@ static void MX_CAN1_Init(void)
        uint32_t err = HAL_CAN_GetError(&hcan1);
        char buf[80];
        int len = snprintf(buf, sizeof(buf),
-           "Fout: HAL_CAN_ActivateNotification() mislukt, HAL-status = %lu, CAN_Error = 0x%08lX\r\n",
+           "Fout: HAL_CAN_ActivateNotification() mislukt, HAL-status = %lu, CAN_Error = 0x%08luX\r\n",
            (unsigned long)status,
            (unsigned long)err);
        HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
