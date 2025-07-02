@@ -197,7 +197,7 @@ void CanSendMessage(uint32_t extId, const uint8_t payload[8], uint8_t length,uin
         {
         char buf[64];
         int len = snprintf(buf, sizeof(buf),
-            "Send: ID=0x%08lX DLC=%u, Payload=%02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+            "Send: ID=0x%08lX DLC=%lu, Payload=%02X %02X %02X %02X %02X %02X %02X %02X\r\n",
 			TxHeaderCan.ExtId,TxHeaderCan.DLC,
             payload[0], payload[1], payload[2], payload[3],
             payload[4], payload[5], payload[6], payload[7]
@@ -249,7 +249,7 @@ void ProcessCANMessages(void) {
                 VoltageMsg_t *m = (VoltageMsg_t*)msg.data;
                 float voltage_v = m->value * 3.125e-3f;
                 int len = snprintf(buf, sizeof(buf),
-                    "Ontvangen: Spanning (ID=0x%08lX, idx=%u): %.2f V.\r\n",
+                    "Ontvangen: Spanning (ID=0x%08lX, idx=%lu): %.2f V.\r\n",
                     (unsigned long)msg.header.ExtId,
                     GET_INDEX(msg.header.ExtId),
                     voltage_v);
@@ -261,7 +261,7 @@ void ProcessCANMessages(void) {
                 int16_t sv = (int16_t)m->value;
                 float temp_c = sv * 0.0078125f;
                 int len = snprintf(buf, sizeof(buf),
-                    "Ontvangen: Temperatuur (ID=0x%08lX, idx=%u): %.2f °C.\r\n",
+                    "Ontvangen: Temperatuur (ID=0x%08lX, idx=%lu): %.2f °C.\r\n",
                     (unsigned long)msg.header.ExtId,
                     GET_INDEX(msg.header.ExtId),
                     temp_c);
@@ -274,7 +274,7 @@ void ProcessCANMessages(void) {
                 uint32_t h = s / 3600, rem = s % 3600;
                 uint32_t min = rem / 60;
                 int len = snprintf(buf, sizeof(buf),
-                    "Ontvangen: Uptime (ID=0x%08lX, idx=%u): %lu uur %02lu min.\r\n",
+                    "Ontvangen: Uptime (ID=0x%08lX, idx=%lu): %lu uur %02lu min.\r\n",
                     (unsigned long)msg.header.ExtId,
                     GET_INDEX(msg.header.ExtId),
                     h, min);
@@ -284,7 +284,7 @@ void ProcessCANMessages(void) {
             case 9: {  // Identificatie
                 IdentMsg_t *m = (IdentMsg_t*)msg.data;
                 int len = snprintf(buf, sizeof(buf),
-                    "Ontvangen: Ident (ID=0x%08lX, idx=%u): verie=%u, serial=%u, board=%u.\r\n",
+                    "Ontvangen: Ident (ID=0x%08lX, idx=%lu): verie=%u, serial=%u, board=%u.\r\n",
                     (unsigned long)msg.header.ExtId,
                     GET_INDEX(msg.header.ExtId),
                     m->version_id, m->serial_id, m->build_date);

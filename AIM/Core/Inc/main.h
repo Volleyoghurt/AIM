@@ -94,6 +94,8 @@ typedef enum {
     STATE_WAIT,
 	STATE_ERROR,
 } State_t;
+
+void Error_Handler(void);
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

@@ -128,5 +128,6 @@ void CanSendIdent(uint8_t board, uint8_t index, uint8_t id, uint8_t serid, uint8
 void CanSendUptime(uint8_t board, uint8_t index, uint32_t uptime_seconds, uint32_t reset);
 void CanSendVoltage(uint8_t board, uint8_t index, uint32_t voltage, uint32_t time);
 void CanSendCurrent(uint8_t board, uint8_t index, uint32_t current, uint32_t time);
+void ProcessCANMessages(void);
 
 #endif /* INC_CAN_H_ */

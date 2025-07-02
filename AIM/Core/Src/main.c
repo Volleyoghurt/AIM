@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <math.h>
 #include "can.h"
 #include "tmp117.h"
 #include "ds1682.h"
@@ -42,7 +43,9 @@
 #define BUILDDATE __DATE__
 #define SERIALNR 1337
 #define BOARD 1
-#define LINK_HIGH_TIMEOUT_MS 500
+#define LINK0_TIMEOUT_MS 500
+#define LINK1_TIMEOUT_MS 500
+#define LINK2_TIMEOUT_MS 500
 
 /* USER CODE END PD */
 
@@ -87,15 +90,13 @@ char buf[64];
 uint8_t TempReady 		= 0;
 uint8_t TmpAlertFlag 	= 0;
 uint8_t InaAlertFlag 	= 0;
-static uint8_t printed = 0;
-char TempBuf[64];
 
 uint32_t pulseStart = 0;
 uint32_t pulseWidth = 0;
 
 /* Settings:--------------------------------------*/
-static float AlarmLimitHighSetPoint 	= 25.0;    //nog fixen
-static float AlarmLimitLowSetPoint 	= 24.0;
+static float AlarmLimitHighSetPoint 	= 25.0f;    //nog fixen
+static float AlarmLimitLowSetPoint 		= 24.0f;
 
 static State_t state = STATE_INIT;
 static uint32_t lastTick = 0;
@@ -136,35 +137,63 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
  *
  * @param GPIO_Pin De GPIO-pin waarvoor de interrupt plaatsvond.
  */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-	if (GPIO_Pin == LinkStatus1_Pin)
-	    {
-	        GPIO_PinState state_int = HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin);
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	if (GPIO_Pin == LinkStatus0_Pin){
+		GPIO_PinState state_int_link0 = HAL_GPIO_ReadPin(LinkStatus0_GPIO_Port, LinkStatus0_Pin);
 
-	        if (state_int == GPIO_PIN_SET)
-	        {
+	    if (state_int_link0 == GPIO_PIN_SET){
 	            // Start van hoog-signaal detecteren
-	            linkHighTimestamp = HAL_GetTick();
-	        }
-	        else
-	        {
+	            Link0HighTimestamp = HAL_GetTick();
+	    }
+	    else{
 	            // Puls is weer laag → reset fout als het een korte puls was
-	            if (linkErrorFlag)
-	            {
-	                linkErrorFlag = 0;
-	                Link_ETH_OnLinkRecovered();
-	            }
-	        }
+	    	if (Link0ErrorFlag){
+	            Link0ErrorFlag = 0;
+	            Link_Recovered(LINK_STATUS0);
+	     	 }
+	     }
         // LED-blink bij ontvangen puls
-        HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
+        //HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin,state_int_link0); //Debug
     }
-    else if (GPIO_Pin == TMPALERT_Pin)
+	else if (GPIO_Pin == LinkStatus1_Pin){
+			GPIO_PinState state_int_link1 = HAL_GPIO_ReadPin(LinkStatus1_GPIO_Port, LinkStatus1_Pin);
+
+		    if (state_int_link1 == GPIO_PIN_SET){
+		            // Start van hoog-signaal detecteren
+		            Link1HighTimestamp = HAL_GetTick();
+		    }
+		    else{
+		            // Puls is weer laag → reset fout als het een korte puls was
+		    	if (Link1ErrorFlag){
+		            Link1ErrorFlag = 0;
+		            Link_Recovered(LINK_STATUS0);
+		     	 }
+		     }
+	        //HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin,state_int_link1); //Debug
+	}
+	else if (GPIO_Pin == LinkStatus2_Pin){
+			GPIO_PinState state_int_link2 = HAL_GPIO_ReadPin(LinkStatus2_GPIO_Port, LinkStatus2_Pin);
+
+		    if (state_int_link2 == GPIO_PIN_SET){
+		            // Start van hoog-signaal detecteren
+		            Link2HighTimestamp = HAL_GetTick();
+		    }
+		    else{
+		            // Puls is weer laag → reset fout als het een korte puls was
+		    	if (Link2ErrorFlag){
+		            Link2ErrorFlag = 0;
+		            Link_Recovered(LINK_STATUS0);
+		     	 }
+		     }
+	        // LED-blink bij ontvangen puls
+	        //HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin,state_int_link2); //Debug
+	    }
+    else if (GPIO_Pin == TMPALERT_Pin)  //Temperatuur alarm
     {
         state = STATE_ERROR;
     	TmpAlertFlag = 1;
     }
-    else if (GPIO_Pin == VCALERT_Pin)
+    else if (GPIO_Pin == VCALERT_Pin)  //Spanning/stroom alarm
     {
         state = STATE_ERROR;
     	InaAlertFlag = 1;
@@ -174,7 +203,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         __NOP();
     }
 }
-
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -207,24 +235,26 @@ void AIM_INIT(void)
 	//Start bericht
 	UART_MSG();
 
-	TMP117_Init(TMP117_I2C_ADDR,0b0000000000110000,25.0, 24.0);
-	//HAL_Delay(50);
-	//INA238_Init(INA238_I2C_ADDR, 0x0000, 0xFB68, 0x4096, 0x0001, 0.16384, 0, 0, 0.16384);
-	//HAL_Delay(50);
+	TMP117_Init(TMP117_I2C_ADDR,0x0630 ,25.0f, 24.0f);
+	HAL_Delay(50);
+	INA238_Init(INA238_I2C_ADDR, 0x4096,INA238_ALERT_ALL_WITH_ENABLE, 0.16384, 0.001, 3.4, 0.16384);
+	HAL_Delay(50);
 
 	TMP117_Display_Register(TMP117_I2C_ADDR, TMP117_REG_CONFIG);
 	TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_HIGH_LIMIT, 1);
 	TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_T_LOW_LIMIT, 1);
-
+	TMP117_DebugShowLimits(TMP117_I2C_ADDR);
 	// Send identificatie van het board
+
+	Link_CheckInitialLinkStatus();
+
 	CanSendIdent(BOARD, 1, VERSION, SERIALNR, BUILDDATE);
-	Link_ETH_CheckInitialLinkStatus();
 }
 
 void UART_MSG(void)
 {
 	char buf[80];
-	int len = snprintf(buf, sizeof(buf),"*************AIM gestart!**********\n\r");
+	int len = snprintf(buf, sizeof(buf),"*******************************AIM gestart!*******************************\n\r");
   	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
 }
 
@@ -271,10 +301,12 @@ int main(void)
 /*----------------------------------------------------------------------------*/
   HAL_CAN_Start(&hcan1);                   // Start van de CAN-Bus HAL
 
-  HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);   // Start van Notificatie bij een ontvangen signaal.
+  HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);   // Start van Notificatie bij een ontvangen can signaal.
+/*----------------------------------------------------------------------------*/
+/*----------------------------------------------------------------------------*/
+/*— UART start en activatie van RX notificatie  —*/
 /*----------------------------------------------------------------------------*/
 
-/****************************************************************************************************************************************/
   HAL_UART_Receive_IT(&huart1, rx_buff_UART, 10);
 
 
@@ -297,8 +329,12 @@ int main(void)
 	          {
 	              case STATE_INIT:
 	                  AIM_INIT();           // jouw init-flow
+	                  Link_CheckInitialLinkStatus();
+	                  HAL_Delay(200);
+
 	                  state = STATE_READ;
-	                  break;
+
+	              break;
 
 	              case STATE_READ:
 	                  // 1) Lees temperature en runtime:
@@ -307,8 +343,16 @@ int main(void)
 	                  elapsedTime = DS1682_ReadElapsedTime(DS1682_I2C_ADDR);
 	                  rawVoltage  = INA238_ReadRegister(INA238_I2C_ADDR, INA238_REG_VBUS);
 	                  rawCurrent  = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 0);
+
+	                  if(CheckLinkTimeout(LINK0_TIMEOUT_MS, LINK1_TIMEOUT_MS, LINK2_TIMEOUT_MS)){
+	                	  state = STATE_ERROR;
+	                  }
+
+	                  ProcessCANMessages();
+
 	                  state = STATE_TRANSMIT;
-	                  break;
+
+	              break;
 
 	              case STATE_TRANSMIT:
 	                  // 2) Verstuur via CAN-BUS:
@@ -316,54 +360,62 @@ int main(void)
 	                  CanSendUptime   (BOARD, 1, elapsedTime, DS1682_ReadEventCounter(DS1682_I2C_ADDR));
 	                  CanSendCurrent  (BOARD, 1, rawCurrent, HAL_GetTick());
 	            	  CanSendVoltage(BOARD, 1,	INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,0),DS1682_ReadElapsedTime(DS1682_I2C_ADDR));
+
 	            	  state = STATE_DISPLAY;
-	                  break;
+
+	              break;
 
 	              case STATE_DISPLAY:
 	            	  //4) geeft waarde weer op display
 	            	  DS1682_SecondsToHM_Display(DS1682_I2C_ADDR,1);
-	            	  uint16_t Vbus1 = INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,1);
-	            	  uint16_t Current = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 1);
-	            	  uint16_t INATEMP = INA238_ReadTemp(INA238_I2C_ADDR, 1);
-	            	  uint16_t TMPTEMP = TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,1);
+	            	  INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,1);
+	            	  INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 1);
+	            	  INA238_ReadTemp(INA238_I2C_ADDR, 1);
+	            	  TMP117_ReadTemperatureC(TMP117_I2C_ADDR, TMP117_REG_TEMP_RESULT,1);
 
 	            	  lastTick = HAL_GetTick();  // tijdstip van ingang in wachtperiode
 	            	  state = STATE_WAIT;
-	            	  break;
+
+	              break;
 
 	              case STATE_WAIT:
 
 	            	  if ((HAL_GetTick() - lastTick) >= 1000) {
 	            		   state = STATE_READ;
 	            	  }
-	            	  break;
+	              break;
 
 	              case STATE_ERROR:
 	            	  if (TmpAlertFlag) {
-	            		  if(TMP117_ReadRegister(TMP117_I2C_ADDR, TMP117_REG_CONFIG) & ((1 << 15) | (1 << 14))) // controleer of een van de twee alerts hoog zijn.
-	            		  {
-	            				 TMP117_Temp_Alert(TMP117_I2C_ADDR);
+	            		  if(TMP117_ReadRegister(TMP117_I2C_ADDR, TMP117_REG_CONFIG) & ((1 << 15) | (1 << 14))){ // controleer of een van de twee alerts hoog zijn.
+
+	            				 TMP117_Alert(TMP117_I2C_ADDR);
 	            		  }
 	            			 TmpAlertFlag = 0;
+	            	  }
+	            	  if(InaAlertFlag){
+	            		  INA238_Alert(INA238_I2C_ADDR);
+	            		  InaAlertFlag = 0;
 	            		  }
-
-	            		  if(InaAlertFlag){
-
-	            		  }
-
-	            		  state = STATE_READ;
+	            	 if(Link0ErrorFlag){
+	            		 Link_Error(LINK_STATUS0);
+	            	 }
+	            	 if(Link1ErrorFlag){
+	            		 Link_Error(LINK_STATUS1);
+	            	 }
+	            	 if(Link2ErrorFlag){
+	            		 Link_Error(LINK_STATUS2);
+	            	 }
+	            	state = STATE_READ;
 	            	  // 5) Handel Error binnen syteem af.
-	            	  break;
+	               break;
 	          }
-
-		Link_ETH_CheckLinkTimeout();  // ← controleer of het signaal al te lang hoog blijft
 
 /*----------------------------------------------------------------------------*/
  /*— Interupts Handeling  —*/
  /*----------------------------------------------------------------------------*/
 //Handeling Temp alarm via interrupt PA8
 
-	 ProcessCANMessages();
 
 /*
 		    uint16_t status = INA238_ReadRegister(INA238_I2C_ADDR, INA238_REG_DIAG_ALERT);
@@ -447,8 +499,8 @@ int main(void)
 */
 
 
+  }// end while(1)
 
-  }
 
   /*******************************************************************************************************************************/
 

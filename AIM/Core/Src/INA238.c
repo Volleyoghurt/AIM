@@ -152,51 +152,41 @@ HAL_StatusTypeDef INA238_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value
  * @param  buvl_threshold Spanning voor Bus Under Voltage Limit drempel
  */
 void INA238_Init(uint8_t addr,
-                 uint16_t config,
-                 uint16_t adc_config,
                  uint16_t shunt_cal,
                  uint16_t diag_alert,
-                 float solv_threshold,
-                 float sulv_threshold,
+                 float sovl_threshold,
+                 float suvl_threshold,
                  float bovl_threshold,
                  float buvl_threshold)
 {
-    float lsb_voltage = 0.003125f;  // Resolutie van de spanningsdrempelregisters (datasheetwaarde)
+    float lsb_voltage = 0.003125f;
 
-    // Zet de spanningsdrempels om naar 16-bit registerwaarden
-    uint16_t solv_raw = ConvertVoltageToRaw(solv_threshold, lsb_voltage);
-    uint16_t sulv_raw = ConvertVoltageToRaw(sulv_threshold, lsb_voltage);
+    // Zet spanningsdrempels om naar raw registerwaarden
+    uint16_t sovl_raw = ConvertVoltageToRaw(sovl_threshold, lsb_voltage);
+    uint16_t suvl_raw = ConvertVoltageToRaw(suvl_threshold, lsb_voltage);
     uint16_t bovl_raw = ConvertVoltageToRaw(bovl_threshold, lsb_voltage);
     uint16_t buvl_raw = ConvertVoltageToRaw(buvl_threshold, lsb_voltage);
 
-    // Datastructuur om registeradres + gewenste waarde te groeperen
-    typedef struct {
-        uint8_t reg;     // Registeradres in de INA238
-        uint16_t value;  // Te schrijven 16-bit waarde
-    } INA238_WritePair_t;
+    char buf[64];
 
-    // Initialisatiearray met alle te schrijven instellingen
-    const INA238_WritePair_t init_config[] = {
-        { INA238_REG_CONFIG,     config     },
-        { INA238_REG_ADC_CONFIG, adc_config },
-        { INA238_REG_VSHUNT_CAL, shunt_cal  },
-        { INA238_REG_DIAG_ALERT, diag_alert },
-        { INA238_REG_SOLV,       solv_raw   },
-        { INA238_REG_SULV,       sulv_raw   },
-        { INA238_REG_BOLV,       bovl_raw   },
-        { INA238_REG_BULV,       buvl_raw   },
-    };
+    // Stap 1: Set ADC_CONFIG (optioneel, maar expliciet is veilig)
+    INA238_WriteRegister(addr, INA238_REG_ADC_CONFIG, 0xFB68);
+    HAL_Delay(2);
 
-    // Doorloop alle init-instellingen en schrijf elke waarde naar het bijbehorende register
-    for (uint8_t i = 0; i < sizeof(init_config) / sizeof(init_config[0]); i++) {
-        INA238_WriteRegister(addr,                // Doelapparaat (slave-adres)
-                             init_config[i].reg,  // Registeradres
-                             init_config[i].value // Te schrijven waarde
-							 );
- 		HAL_Delay(10);
- 		INA238_Display_Register(addr,init_config[i].reg);  //Laat register zien in UART
-    }
+    // Stap 2: Calibratie en drempels
+    INA238_WriteRegister(addr, INA238_REG_VSHUNT_CAL, shunt_cal);
+    INA238_WriteRegister(addr, INA238_REG_SOLV, sovl_raw);
+    INA238_WriteRegister(addr, INA238_REG_SULV, suvl_raw);
+    INA238_WriteRegister(addr, INA238_REG_BOLV, bovl_raw);
+    INA238_WriteRegister(addr, INA238_REG_BULV, buvl_raw);
+    HAL_Delay(2);
+
+    // Stap 3: Zet DIAG_ALERT met ALERT_EN (bit 14)
+    INA238_WriteRegister(addr, INA238_REG_DIAG_ALERT, diag_alert);
+    HAL_Delay(2);
 }
+
+
 
 /**
  * Lees de VBUS-spanning van de INA238 en converteer naar volts
@@ -354,3 +344,64 @@ uint16_t INA238_ReadTemp(uint8_t addr, uint8_t debug){
     return raw;
 }
 
+
+void INA238_Alert(uint16_t addr)
+{
+    uint16_t status = INA238_ReadRegister(addr, INA238_REG_DIAG_ALERT);  // 0x0C
+    INA238_Display_Register(addr, INA238_REG_DIAG_ALERT);
+
+    if (status == 0) {
+        return; // Geen actieve alerts
+    }
+
+    if (status & INA238_ALERT_MEM_ERROR) {
+        // geheugenfout
+        // InaMemError();
+    }
+    if (status & INA238_ALERT_TEMPERATURE) {
+        // temperatuurdrempel overschreden
+        // InaTempOver();
+    }
+    if (status & INA238_ALERT_SHUNT_OVER) {
+        // shuntspanning te hoog
+        // InaShuntOver();
+    }
+    if (status & INA238_ALERT_SHUNT_UNDER) {
+        // shuntspanning te laag
+        // InaShuntUnder();
+    }
+    if (status & INA238_ALERT_BUS_OVERVOLTAGE) {
+        // VBUS te hoog
+        // InaBusOver();
+    }
+    if (status & INA238_ALERT_BUS_UNDERVOLTAGE) {
+        // VBUS te laag
+        // InaBusUnder();
+    }
+    if (status & INA238_ALERT_OVERCURRENT) {
+        // stroom overschreden
+        // InaCurrentOver();
+    }
+    if (status & INA238_ALERT_CONVERSION) {
+        // conversie voltooid
+        // InaConversionDone();
+    }
+}
+
+/*
+			  uint16_t rawvoltage = INA238_ReadVoltage(INA238_I2C_ADDR,INA238_REG_VBUS,0);
+			  uint16_t rawcurrent = INA238_ReadCurrent(INA238_I2C_ADDR, INA238_REG_CURRENT, 0);
+
+			  int16_t signed_val_V = (int16_t)rawvoltage;
+			  float voltage = signed_val * 3.125e-3f;  // V
+
+			  int16_t signed_val_I = (int16_t)rawcurrent;
+			  float current = signed_val * 3.125e-3f;  // V
+			  char buf[80];
+			  int len = snprintf(buf, sizeof(buf),
+					  "Alarm! Spanning=%.2f, Stroom=%.2f A  limieten: Spanning low=%.2f, high=%.2f stroom low=%.2f, high=%.2f\r\n",
+							  voltage, current, AlarmLimitLowSetPoint, AlarmLimitHighSetPoint)
+			  // Lees
+		  }
+}
+*/

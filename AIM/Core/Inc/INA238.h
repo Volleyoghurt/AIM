@@ -33,17 +33,20 @@
 #define INA238_REG_DEVID        0x3F    //Device ID                         16b		r
 
 
-// Bitmask helpers voor DIAG_ALERT register
-#define INA238_ALERT_MEM_ERROR       (1 << 0)   // MEMSTAT
-#define INA238_ALERT_CONVERSION_DONE (1 << 1)   // CNVRF
-#define INA238_ALERT_POWER_OVER      (1 << 2)   // POL
-#define INA238_ALERT_BUS_UNDERVOLT   (1 << 3)   // BUSUL
-#define INA238_ALERT_BUS_OVERVOLT    (1 << 4)   // BUSOL
-#define INA238_ALERT_SHUNT_UNDER     (1 << 5)   // SHNTUL
-#define INA238_ALERT_SHUNT_OVER      (1 << 6)   // SHNTOL
-#define INA238_ALERT_TEMP_OVER       (1 << 7)   // TMPOL
-#define INA238_ALERT_MATH_OVERFLOW   (1 << 9)   // MATHOF (bit 8 is reserved)
+#define INA238_ALERT_SHUNT_OVER      (1 << 0)
+#define INA238_ALERT_SHUNT_UNDER     (1 << 1)
+#define INA238_ALERT_BUS_OVERVOLTAGE (1 << 2)
+#define INA238_ALERT_BUS_UNDERVOLTAGE (1 << 3)
+#define INA238_ALERT_OVERCURRENT     (1 << 4)
+#define INA238_ALERT_CONVERSION      (1 << 5)
+#define INA238_ALERT_TEMPERATURE     (1 << 6)
+#define INA238_ALERT_CONV_READY      (1 << 7)
+#define INA238_ALERT_MEM_ERROR       (1 << 8)
 
+
+#define INA238_ALERT_ENABLE_PIN      (1 << 14)
+
+#define INA238_ALERT_ALL_WITH_ENABLE  (0x4000 | 0x01FF)  // bit 14 + alle alerts
 
 typedef struct {
     uint8_t reg;
@@ -57,12 +60,10 @@ typedef struct {
 
 
 void INA238_Init(uint8_t addr,
-                 uint16_t config,
-                 uint16_t adc_config,
                  uint16_t shunt_cal,
                  uint16_t diag_alert,
-                 float solv_threshold,
-                 float sulv_threshold,
+                 float sovl_threshold,
+                 float suvl_threshold,
                  float bovl_threshold,
                  float buvl_threshold);
 HAL_StatusTypeDef INA238_WriteRegister(uint8_t addr, uint8_t reg, uint16_t value);
@@ -73,6 +74,8 @@ uint16_t INA238_ReadCurrent(uint8_t addr, uint8_t reg, uint8_t debug);
 uint16_t INA238_ReadTemp(uint8_t addr, uint8_t debug);
 uint32_t INA238_ReadPower(uint8_t addr, uint8_t reg, uint8_t debug);
 uint16_t ConvertVoltageToRaw(float voltage, float lsb);
+void INA238_Alert(uint16_t addr);
+
 
 #endif // INA238_H
 

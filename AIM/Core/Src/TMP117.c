@@ -7,10 +7,13 @@
 
 #include "tmp117.h"
 #include <stdio.h>
+#include <math.h>
 
 extern I2C_HandleTypeDef hi2c1;
 extern UART_HandleTypeDef huart2;
 
+float AlarmLimitHighSetPoint = 0;
+float AlarmLimitLowSetPoint  = 0;
 
 /*----------------------------------------------------------------------------*/
 /*— I2C TMP117 communicatie functies
@@ -195,50 +198,45 @@ HAL_StatusTypeDef TMP117_WriteTemperatureC(uint8_t addr, uint8_t reg, float temp
  * @param  temp_high     Bovenste temperatuurgrens (°C)
  * @param  temp_low      Onderste temperatuurgrens (°C)
  */
-void TMP117_Init(uint8_t addr, uint8_t config, float temp_high, float temp_low)
+void TMP117_Init(uint8_t addr, uint16_t config, float temp_high, float temp_low)
 {
-
-	TMP117_WriteRegister(addr,TMP117_REG_CONFIG,config);
-	HAL_Delay(25);
-	TMP117_WriteTemperatureC(addr,TMP117_REG_T_HIGH_LIMIT, 25.0);
-	HAL_Delay(25);
-	TMP117_WriteTemperatureC(addr, TMP117_REG_T_LOW_LIMIT , 24.0);
-	HAL_Delay(25);
-
-	/*
-	// TMP117 gebruikt 0.0078125°C/LSB → 1/128
     const float lsb = 0.0078125f;
+    int16_t raw_high = (int16_t)lroundf(temp_high / lsb);
+    int16_t raw_low  = (int16_t)lroundf(temp_low  / lsb);
+    char buf[80];
 
-    // Zet °C om naar raw registerwaarden (2-complement formaat)
-    uint16_t raw_high  = (int16_t)(temp_high  / lsb);
-    uint16_t raw_low   = (int16_t)(temp_low   / lsb);
+    // 1) Shutdown‐mode: MODE = 00 → clear bits[10:9]
+    uint16_t cfg_shutdown = config & ~(0x0300);
+    TMP117_WriteRegister(addr, TMP117_REG_CONFIG, cfg_shutdown);
+    HAL_Delay(100);
 
-    // Struct voor reg/waarde-koppels
-    typedef struct {
-        uint8_t reg;
-        uint16_t value;
-    } TMP117_WritePair_t;
+    // 2) Write thresholds while in shutdown
+    TMP117_WriteRegister(addr, TMP117_REG_T_HIGH_LIMIT, (uint16_t)raw_high);
+    HAL_Delay(100);
+    uint16_t v = TMP117_ReadRegister(addr, TMP117_REG_T_HIGH_LIMIT);
+    snprintf(buf, sizeof(buf),
+        "DBG: T_HIGH write: exp=0x%04X, rd=0x%04X\r\n", raw_high, v);
+    HAL_UART_Transmit(&huart2,(uint8_t*)buf,strlen(buf),HAL_MAX_DELAY);
 
-    // Lijst met initialisatiewaarden
-    const TMP117_WritePair_t init_config[] = {
-        { TMP117_REG_CONFIG, 		config     },
-        { TMP117_REG_T_HIGH_LIMIT,  raw_high   },
-        { TMP117_REG_T_LOW_LIMIT,   raw_low    },
-    };
+    TMP117_WriteRegister(addr, TMP117_REG_T_LOW_LIMIT, (uint16_t)raw_low);
+    HAL_Delay(100);
+    v = TMP117_ReadRegister(addr, TMP117_REG_T_LOW_LIMIT);
+    snprintf(buf, sizeof(buf),
+        "DBG: T_LOW  write: exp=0x%04X, rd=0x%04X\r\n", raw_low, v);
+    HAL_UART_Transmit(&huart2,(uint8_t*)buf,strlen(buf),HAL_MAX_DELAY);
 
-    // Registreer alle waarden in volgorde
-    for (uint8_t i = 0; i < sizeof(init_config) / sizeof(init_config[0]); i++) {
-        TMP117_WriteRegister(addr,
-                             init_config[i].reg,
-                             init_config[i].value);
+    // 3) Continuous‐mode: schrijf CONFIG met MODE=11 (bits10:9)
+    TMP117_WriteRegister(addr, TMP117_REG_CONFIG, config);
+    HAL_Delay(100);
 
- 		HAL_Delay(50);
- 		TMP117_Display_Register(addr,init_config[i].reg);  //Laat register zien in UART
-
-
-    }
-      */
+    // 4) Debug final CONFIG
+    v = TMP117_ReadRegister(addr, TMP117_REG_CONFIG);
+    snprintf(buf, sizeof(buf),
+        "DBG: CONFIG final: rd=0x%04X\r\n", v);
+    HAL_UART_Transmit(&huart2,(uint8_t*)buf,strlen(buf),HAL_MAX_DELAY);
 }
+
+
 
 /**
  * Toon de inhoud van een 16-bit register van de TMP117 via UART
@@ -275,7 +273,7 @@ void TMP117_Display_Register(uint8_t addr, uint16_t Register)
     }
 }
 
-void TMP117_Temp_Alert(uint16_t addr){
+void TMP117_Alert(uint16_t addr){
 	uint16_t rawtemp = TMP117_ReadRegister(addr, TMP117_REG_TEMP_RESULT);
 
 	int16_t signed_val = (int16_t)rawtemp;
@@ -298,5 +296,17 @@ void TMP117_Temp_Alert(uint16_t addr){
 	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
 }
 
+void TMP117_DebugShowLimits(uint8_t addr)
+{
+	uint16_t raw_high = TMP117_ReadRegister(addr, TMP117_REG_T_HIGH_LIMIT);
+	uint16_t raw_low  = TMP117_ReadRegister(addr, TMP117_REG_T_LOW_LIMIT);
 
+	float high = ((int16_t)raw_high) * 0.0078125f;
+	float low  = ((int16_t)raw_low)  * 0.0078125f;
+
+	char buf[80];
+	int len = snprintf(buf, sizeof(buf),
+		"T_HIGH = %.2f °C, T_LOW = %.2f °C\r\n", high, low);
+	HAL_UART_Transmit(&huart2, (uint8_t*)buf, len, HAL_MAX_DELAY);
+}
 
