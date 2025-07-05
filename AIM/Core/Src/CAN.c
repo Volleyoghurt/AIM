@@ -169,6 +169,26 @@ void CanLink(uint8_t board, uint8_t index, uint32_t status, uint32_t type, uint3
 	CanSendMessage(id, (uint8_t*)&msg, sizeof(msg),0);
 }
 
+typedef struct __attribute__((packed)){// __attribute__((packed)) zorgt ervoor dat er geen bitpadding ontstaat
+	uint8_t message_id;					//byte 0 MCU_id
+	uint8_t value;					//byte 1: Message value
+	uint8_t length;					//byte 2: Message lenght
+} McuMsg_t;
+
+void CanMcuMsg(uint8_t board, uint8_t index, uint8_t id, uint8_t value, uint8_t length){
+	McuMsg_t msg;
+	msg.message_id = id;
+	msg.value = value;
+	msg.length = length;
+
+	uint32_t id = CAN_EXT_ID(
+			PRIO_MCUMSG,
+			board,
+			TYPE_MCUMSG,
+			index);
+	CanSendMessage(id, (uint8_t*)&msg, sizeof(msg),0);
+}
+
 
 // Can-bus zend bericht.
 /**
@@ -176,6 +196,7 @@ void CanLink(uint8_t board, uint8_t index, uint32_t status, uint32_t type, uint3
  * @param extId   29-bit Extended Identifier
  * @param payload Pointer naar maximaal 8 bytes data
  * @param length  Aantal bytes in payload (0–8)
+ * @param debug  Debug weergave 0 = uit, 1= aan
  */
 void CanSendMessage(uint32_t extId, const uint8_t payload[8], uint8_t length,uint8_t debug)
 {

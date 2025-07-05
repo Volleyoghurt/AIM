@@ -99,13 +99,13 @@ typedef struct __attribute__((packed)) { // __attribute__((packed)) zorgt ervoor
 } TempMsg_t;
 
 typedef struct __attribute__((packed)) { // __attribute__((packed)) zorgt ervoor dat er geen bitpadding ontstaat
-	uint32_t runtime;				//byte 0-4 Runtime.
-	uint8_t reset_count;			//byte 5-7: aantal keer reset
+	uint32_t runtime;				//byte 0-3 Runtime.
+	uint8_t reset_count;			//byte 4: aantal keer reset
 } RuntimeMsg_t;
 
 typedef struct __attribute__((packed)){// __attribute__((packed)) zorgt ervoor dat er geen bitpadding ontstaat
 	uint8_t MCU_id;					//byte 0 MCU_id
-	uint8_t type;					//byte 1: Message type
+	uint8_t value;					//byte 1: Message value
 	uint8_t length;					//byte 2: Message lenght
 } McuMsg_t;
 

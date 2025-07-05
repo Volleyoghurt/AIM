@@ -206,7 +206,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-  //HAL_UART_Receive_IT(&huart1, rx_buff_UART, 10); //You need to toggle a breakpoint on this line!
+	HAL_UART_Receive_IT(&huart1, rx_buff_UART, 8);
 }
 
 
